@@ -229,7 +229,7 @@ impl Iterator for TransformMatrix {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InputMatrix {
     k : usize,			// rows
     c : usize,			// cols
@@ -287,17 +287,29 @@ impl OutputMatrix {
 mod tests {
 
     use super::*;
-
+    // use std::iter::Iterator;
+    
     #[test]
     fn make_transform() {
 	let mut input = TransformMatrix::new(4,3);
 	let vec : Vec<u8> = (1u8..=12).collect();
 	input.fill(&vec[..]);
-	let iter = input.into_iter();
-	let mut part : Vec<u8> = iter.take(6).collect();
-	assert_eq!(part, [1,2,3,4,5,6]);
+//	let mut iter = input.next();
+	let elem = input.next();
+	assert_eq!(elem, Some(1));
+
+	// we can't use take() because it moves ownership of input, so
+	// we have to call next() repeatedly.
+
+	let mut part : Vec<u8> = Vec::with_capacity(24);
+	for _ in 1..=5 { part.push(input.next().unwrap()) }
+
+	assert_eq!(part, [2,3,4,5,6]);
+
 	// wrapping around
-	part = iter.take(12).collect();
+	part.truncate(0);
+	for _ in 1..=12 { part.push(input.next().unwrap()) }
+
 	assert_eq!(part, [7,8,9,10,11,12,1,2,3,4,5,6]);
     }
 }
