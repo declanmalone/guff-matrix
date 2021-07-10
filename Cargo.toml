@@ -1,0 +1,29 @@
+[package]
+name = "guff-matrix"
+version = "0.1.0"
+edition = "2018"
+description = "Fast Galois Field matrix multiplication"
+homepage = "https://github.com/declanmalone/guff"
+categories = ["mathematics"]
+keywords = ["IDA", "Galois", "matrix", "maths", "SIMD"]
+license = "GPL-2.0-or-later OR LGPL-2.0-or-later"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+# Use criterion for benchmarking all sorts of things
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "single_mul"
+harness = false
+
+[profile.release]
+debug = true
+
+
+[dependencies]
+"num" = "0.4.0"
+"num-traits" = "0.2.14"
+
+
