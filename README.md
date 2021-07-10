@@ -78,3 +78,4 @@ enabled as a feature:
 
 I'll also use this to prove that the algorithm works as intended.
 
+- [x] Write and test simulation of (non-vectorised) algorithm

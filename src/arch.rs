@@ -197,6 +197,8 @@
 //
 // just set w=1 and type = u8 for convenience
 
+use crate::*;
+
 #[derive(Debug, Clone)]
 pub struct TransformMatrix {
     n : usize,			// rows
@@ -211,8 +213,9 @@ impl TransformMatrix {
 	let read_pointer = 0;
 	Self { n, k, array, read_pointer }
     }
-    fn fill(&mut self, slice : &[u8]) {
+    fn fill(&mut self, slice : &[u8]) -> &Self {
 	self.array.copy_from_slice(slice);
+	self
     }
 }
 
@@ -242,6 +245,10 @@ impl InputMatrix {
 	let array = vec![0; k * c];
 	let read_pointer = 0;
 	Self { k, c, array, read_pointer }
+    }
+    fn fill(&mut self, slice : &[u8]) -> &mut Self {
+	self.array.copy_from_slice(slice);
+	self
     }
 }
 
@@ -286,22 +293,113 @@ impl<'a> Iterator for MultiplyStream<'a> {
 pub struct OutputMatrix {
     n : usize,			// rows
     c : usize,			// cols
+    times : usize,
     array : Vec<u8>,		// 
     write_pointer : usize,
+    row : usize,
+    col : usize,
 }
 
 impl OutputMatrix {
     fn new(n : usize, c : usize) -> Self {
 	let array = vec![0; n * c];
 	let write_pointer = 0;
-	Self { n, c, array, write_pointer }
+	let row = 0;
+	let col = 0;
+	let times = 0;
+	Self { n, c, array, times, write_pointer, row, col }
     }
     fn write_next(&mut self, e : u8) {
 	let size = self.n * self.c;
-	self.array[self.write_pointer] = e;
+
+	// if row-wise
+	// self.array[self.row * self.c + self.col] = e;
+
+	// if col-wise (like input matrix)
+	self.array[self.row + self.col * self.n] = e;
+
+	self.row += 1;
+	if self.row == self.n { self.row = 0 }
+	self.col += 1;
+	if self.col == self.c { self.col = 0 }
+
+
+	// junk: need separate row, col
 	// offset n + c is along diagonal, regardless of layout
-	self.write_pointer += self.n + self.c;
-	if self.write_pointer >= size { self.write_pointer -= size }
+	//	self.write_pointer += self.n + self.c;
+	self.write_pointer += self.n + 1;
+	if self.write_pointer >= size {
+	    self.write_pointer -= size - 1;
+	    //self.write_pointer  = self.n - self.write_pointer;
+	    //self.times += 1;
+	    //self.write_pointer = self.times;
+	}
+    }
+}
+
+// "warm": wrap-around read matrix
+//
+// xform and input are assumed to have data in them
+//
+fn warm_multiply(xform  : &mut TransformMatrix,
+		 input  : &mut InputMatrix,
+		 output : &mut OutputMatrix) {
+
+    // using into_iter() below moves ownership, so pull out any data
+    // we need first
+    let c = input.c;
+    let n = xform.n;
+    let k = xform.k;
+
+    assert!(k > 0);
+    assert!(n > 0);
+    assert!(c > 0);
+    assert_eq!(input.k, k);
+    assert_eq!(output.c, c);
+    assert_eq!(output.n, n);
+
+    // searching for prime factors ... needs more work
+    assert_ne!(k, gcd(k,c));
+    
+    // set up a MultiplyStream
+    let xiter = xform.into_iter();
+    let iiter = input.into_iter();
+
+    let mut mstream = MultiplyStream {
+	xform : xiter,
+	input : iiter,
+	field : &guff::new_gf8(0x11b,0x1b),
+    };
+
+    // the algorithm is trivial once we have an infinite stream
+    let mut dp_counter  = 0;
+    let mut partial_sum = 0u8;
+
+    // multiplying an n * k transform by a k * c input matrix:
+    //
+    // n * c dot products per matrix multiplication
+    //
+    // k multiplies per dot product
+    //
+    // Grand total of n * k * c multiplies:
+    let mut m = mstream.take(n * k * c);
+    loop {
+	let p = m.next();
+	if p == None { break }
+
+	let p = p.unwrap();
+	eprintln!("Product: {}", p);
+
+	// add product to sum
+	partial_sum ^= p;
+	dp_counter += 1;
+
+	// dot-product wrap around
+	if dp_counter == k {
+	    output.write_next(partial_sum);
+	    partial_sum = 0u8;
+	    dp_counter = 0;
+	}
     }
 }
 
@@ -333,5 +431,44 @@ mod tests {
 	for _ in 1..=12 { part.push(input.next().unwrap()) }
 
 	assert_eq!(part, [7,8,9,10,11,12,1,2,3,4,5,6]);
+    }
+
+    #[test]
+    fn make_input() {
+	let mut input = InputMatrix::new(4,3);
+	let vec : Vec<u8> = (1u8..=12).collect();
+	input.fill(&vec[..]);
+	let elem = input.next();
+	assert_eq!(elem, Some(1));
+
+	// we can't use take() because it moves ownership of input, so
+	// we have to call next() repeatedly.
+
+	let mut part : Vec<u8> = Vec::with_capacity(24);
+	for _ in 1..=5 { part.push(input.next().unwrap()) }
+
+	assert_eq!(part, [2,3,4,5,6]);
+
+	// wrapping around
+	part.truncate(0);
+	for _ in 1..=12 { part.push(input.next().unwrap()) }
+
+	assert_eq!(part, [7,8,9,10,11,12,1,2,3,4,5,6]);
+    }
+
+    #[test]
+    fn identity_multiply() {
+	let identity = [1,0,0, 0,1,0, 0,0,1];
+	let mut transform = TransformMatrix::new(3,3);
+	transform.fill(&identity[..]);
+	// 4 is coprime to 3
+	let mut input = InputMatrix::new(3,4);
+	let vec : Vec<u8> = (1u8..=12).collect();
+	input.fill(&vec[..]);
+	let mut output = OutputMatrix::new(3,4);
+	warm_multiply(&mut transform, &mut input, &mut output);
+
+	// works if output is stored in colwise format
+	assert_eq!(output.array, vec);
     }
 }
