@@ -258,13 +258,29 @@ impl Iterator for InputMatrix {
     }
 }
 
+use guff::*;
+
 // MultiplyStream will "zip" the two iters above
 // #[derive(Debug)]
 pub struct MultiplyStream<'a> {
     // We don't care what type is producing the u8s
-    xform : &'a dyn Iterator<Item=u8>,
-    input : &'a dyn Iterator<Item=u8>,
-}	
+    xform : &'a mut Iterator<Item=u8>,
+    input : &'a mut Iterator<Item=u8>,
+    // can't I store a ref to something implementing GaloisField?
+    // field : &'a dyn GaloisField<E=u8, EE=u16, SEE=i16>,
+    field : &'a F8,  // use default implementation instead
+}
+
+impl<'a> Iterator for MultiplyStream<'a> {
+    type Item = u8;
+    fn next(&mut self) -> Option<Self::Item> {
+	let a = self.xform.next().unwrap();
+	let b = self.input.next().unwrap();
+
+	Some(self.field.mul(a,b))
+    }
+
+}
 
 #[derive(Debug)]
 pub struct OutputMatrix {
@@ -280,6 +296,13 @@ impl OutputMatrix {
 	let write_pointer = 0;
 	Self { n, c, array, write_pointer }
     }
+    fn write_next(&mut self, e : u8) {
+	let size = self.n * self.c;
+	self.array[self.write_pointer] = e;
+	// offset n + c is along diagonal, regardless of layout
+	self.write_pointer += self.n + self.c;
+	if self.write_pointer >= size { self.write_pointer -= size }
+    }
 }
 
 #[cfg(test)]
@@ -294,7 +317,6 @@ mod tests {
 	let mut input = TransformMatrix::new(4,3);
 	let vec : Vec<u8> = (1u8..=12).collect();
 	input.fill(&vec[..]);
-//	let mut iter = input.next();
 	let elem = input.next();
 	assert_eq!(elem, Some(1));
 
