@@ -197,13 +197,24 @@
 //
 // just set w=1 and type = u8 for convenience
 
-struct TransformMatrix {
+#[derive(Debug, Clone)]
+pub struct TransformMatrix {
     n : usize,			// rows
     k : usize,			// cols
     array : Vec<u8>,		// colwise storage
     read_pointer : usize,
 }
 
+impl TransformMatrix {
+    fn new(n : usize, k : usize) -> Self {
+	let array = vec![0; n * k];
+	let read_pointer = 0;
+	Self { n, k, array, read_pointer }
+    }
+    fn fill(&mut self, slice : &[u8]) {
+	self.array.copy_from_slice(slice);
+    }
+}
 
 // infinite tape... we'll use take(simd_width)
 impl Iterator for TransformMatrix {
@@ -218,11 +229,20 @@ impl Iterator for TransformMatrix {
     }
 }
 
-struct InputMatrix {
+#[derive(Debug)]
+pub struct InputMatrix {
     k : usize,			// rows
     c : usize,			// cols
     array : Vec<u8>,		// colwise storage
     read_pointer : usize,
+}
+
+impl InputMatrix {
+    fn new(k : usize, c : usize) -> Self {
+	let array = vec![0; k * c];
+	let read_pointer = 0;
+	Self { k, c, array, read_pointer }
+    }
 }
 
 // infinite tape... we'll use take(simd_width)
@@ -239,9 +259,45 @@ impl Iterator for InputMatrix {
 }
 
 // MultiplyStream will "zip" the two iters above
-struct MultiplyStream<'a> {
+// #[derive(Debug)]
+pub struct MultiplyStream<'a> {
     // We don't care what type is producing the u8s
     xform : &'a dyn Iterator<Item=u8>,
     input : &'a dyn Iterator<Item=u8>,
 }	
 
+#[derive(Debug)]
+pub struct OutputMatrix {
+    n : usize,			// rows
+    c : usize,			// cols
+    array : Vec<u8>,		// 
+    write_pointer : usize,
+}
+
+impl OutputMatrix {
+    fn new(n : usize, c : usize) -> Self {
+	let array = vec![0; n * c];
+	let write_pointer = 0;
+	Self { n, c, array, write_pointer }
+    }
+}
+
+#[cfg(test)]
+
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn make_transform() {
+	let mut input = TransformMatrix::new(4,3);
+	let vec : Vec<u8> = (1u8..=12).collect();
+	input.fill(&vec[..]);
+	let iter = input.into_iter();
+	let mut part : Vec<u8> = iter.take(6).collect();
+	assert_eq!(part, [1,2,3,4,5,6]);
+	// wrapping around
+	part = iter.take(12).collect();
+	assert_eq!(part, [7,8,9,10,11,12,1,2,3,4,5,6]);
+    }
+}
