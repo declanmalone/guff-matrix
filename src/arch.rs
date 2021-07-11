@@ -127,7 +127,7 @@
 // 
 // Sum across dot product
 //
-// When summing across a full 16-bit vector, we can do this with 3
+// When summing across a full 16-bit vector, we can do this with 4
 // rotates and 4 xors:
 //
 // v ^= rot(v, 8)
@@ -298,25 +298,33 @@ pub struct OutputMatrix {
     write_pointer : usize,
     row : usize,
     col : usize,
+    rowwise : bool
 }
 
 impl OutputMatrix {
-    fn new(n : usize, c : usize) -> Self {
+    fn new(n : usize, c : usize, rowwise : bool) -> Self {
 	let array = vec![0; n * c];
 	let write_pointer = 0;
 	let row = 0;
 	let col = 0;
 	let times = 0;
-	Self { n, c, array, times, write_pointer, row, col }
+	Self { n, c, array, times, write_pointer, row, col, rowwise }
+    }
+    fn new_rowwise(n : usize, c : usize) -> Self {
+	Self::new(n, c, true)
+    }
+    fn new_colwise(n : usize, c : usize) -> Self {
+	Self::new(n, c, false)
     }
     fn write_next(&mut self, e : u8) {
 	let size = self.n * self.c;
 
-	// if row-wise
-	// self.array[self.row * self.c + self.col] = e;
-
-	// if col-wise (like input matrix)
-	self.array[self.row + self.col * self.n] = e;
+	if self.rowwise {
+	    self.array[self.row * self.c + self.col] = e;
+	} else {
+	    // if col-wise (like input matrix)
+	    self.array[self.row + self.col * self.n] = e;
+	}
 
 	self.row += 1;
 	if self.row == self.n { self.row = 0 }
@@ -342,8 +350,8 @@ impl OutputMatrix {
 // xform and input are assumed to have data in them
 //
 fn warm_multiply(xform  : &mut TransformMatrix,
-		 input  : &mut InputMatrix,
-		 output : &mut OutputMatrix) {
+                 input  : &mut InputMatrix,
+                 output : &mut OutputMatrix) {
 
     // using into_iter() below moves ownership, so pull out any data
     // we need first
@@ -366,9 +374,9 @@ fn warm_multiply(xform  : &mut TransformMatrix,
     let iiter = input.into_iter();
 
     let mut mstream = MultiplyStream {
-	xform : xiter,
-	input : iiter,
-	field : &guff::new_gf8(0x11b,0x1b),
+        xform : xiter,
+        input : iiter,
+        field : &guff::new_gf8(0x11b,0x1b),
     };
 
     // the algorithm is trivial once we have an infinite stream
@@ -384,21 +392,56 @@ fn warm_multiply(xform  : &mut TransformMatrix,
     // Grand total of n * k * c multiplies:
     let mut m = mstream.take(n * k * c);
     loop {
-	let p = m.next();
-	if p == None { break }
+        let p = m.next();
+        if p == None { break }
 
-	let p = p.unwrap();
-	eprintln!("Product: {}", p);
+        let p = p.unwrap();
+        eprintln!("Product: {}", p);
 
-	// add product to sum
-	partial_sum ^= p;
-	dp_counter += 1;
+        // add product to sum
+        partial_sum ^= p;
+        dp_counter += 1;
 
-	// dot-product wrap around
-	if dp_counter == k {
-	    output.write_next(partial_sum);
-	    partial_sum = 0u8;
-	    dp_counter = 0;
+        // dot-product wrap around
+        if dp_counter == k {
+            output.write_next(partial_sum);
+            partial_sum = 0u8;
+            dp_counter = 0;
+        }
+    }
+}
+
+// Interleaving
+//
+// The fast matrix multiply works best when all reads (apart from
+// wrap-around reads) are contiguous in memory. That suits the case
+// where we're encoding using RS, striping or IDA, since each column
+// of the input message corresponds to a contiguous chunk of input.
+//
+// When decoding, though, the input has row-wise organisation: each
+// stripe, share or parity is contiguous.
+//
+// For this case, we need to interleave k contiguous streams.
+//
+// Note that there's no need to de-interleave on the output, since we
+// can choose between row-wise and col-wise writes. Neither should
+// have any impact on the speed of the program, since we never read
+// from the output matrix.
+
+// pass in a vector of slices, and interleave them into another slice
+pub fn interleave_streams(dest : &mut [u8], slices : &Vec<&[u8]>) {
+
+    let cols = dest.len() / slices.len();
+    let mut dest = dest.iter_mut();
+    let mut slice_iters : Vec::<_> = Vec::with_capacity(slices.len());
+    for s in slices {
+	let mut iter = s.iter();
+	slice_iters.push(iter);
+    }
+
+    for _ in 0 .. cols {
+	for mut slice in &mut slice_iters {
+	    *dest.next().unwrap() = *slice.next().unwrap();
 	}
     }
 }
@@ -457,7 +500,7 @@ mod tests {
     }
 
     #[test]
-    fn identity_multiply() {
+    fn identity_multiply_colwise() {
 	let identity = [1,0,0, 0,1,0, 0,0,1];
 	let mut transform = TransformMatrix::new(3,3);
 	transform.fill(&identity[..]);
@@ -465,10 +508,49 @@ mod tests {
 	let mut input = InputMatrix::new(3,4);
 	let vec : Vec<u8> = (1u8..=12).collect();
 	input.fill(&vec[..]);
-	let mut output = OutputMatrix::new(3,4);
-	warm_multiply(&mut transform, &mut input, &mut output);
+	let mut output = OutputMatrix::new_colwise(3,4);
 
 	// works if output is stored in colwise format
+	warm_multiply(&mut transform, &mut input, &mut output);
 	assert_eq!(output.array, vec);
+    }
+
+    #[test]
+    fn identity_multiply_rowwise() {
+	let identity = [1,0,0, 0,1,0, 0,0,1];
+	let mut transform = TransformMatrix::new(3,3);
+	transform.fill(&identity[..]);
+	// 4 is coprime to 3
+	let mut input = InputMatrix::new(3,4);
+	let vec : Vec<u8> = (1u8..=12).collect();
+	input.fill(&vec[..]);
+	let mut output = OutputMatrix::new_rowwise(3,4);
+
+	warm_multiply(&mut transform, &mut input, &mut output);
+
+	// works only if output is stored in colwise format:
+	// assert_eq!(output.array, vec);
+
+	// need to transpose matrix (actually original list)... do it
+	// by hand
+	let mut transposed = vec![0u8; 12];
+	let transposed = [ vec[0], vec[3], vec [6], vec[9],
+			   vec[1], vec[4], vec [7], vec[10],
+			   vec[2], vec[5], vec [8], vec[11], ];
+	assert_eq!(output.array, transposed);
+
+    }
+
+    #[test]
+    fn test_interleave() {
+	let a0 = [0, 3, 6, 9];
+	let a1 = [1, 4, 7, 10];
+	let a2 = [2, 5, 8, 11];
+	let vec = vec![&a0[..], &a1[..], &a2[..] ];
+
+	let mut dest = vec![0 ; 12];
+	interleave_streams(&mut dest, &vec);
+
+	assert_eq!(dest, [0,1,2,3,4,5,6,7,8,9,10,11]);
     }
 }
