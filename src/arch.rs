@@ -532,7 +532,7 @@ mod tests {
 	// assert_eq!(output.array, vec);
 
 	// need to transpose matrix (actually original list)... do it
-	// by hand
+	// by hand (actually, to be correct: interleave original)
 	let mut transposed = vec![0u8; 12];
 	let transposed = [ vec[0], vec[3], vec [6], vec[9],
 			   vec[1], vec[4], vec [7], vec[10],
