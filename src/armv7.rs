@@ -55,30 +55,32 @@ pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 //    0xd8, 0xc3, 0xee, 0xf5, 0xb4, 0xaf, 0x82, 0x99,
 //  };
 
-	let u4_0x11b_mod_table = uint8x8x2_t {
+	let u4_0x11b_mod_table = uint8x8x2_t (
 	    0x00, 0x1b, 0x36, 0x2d, 0x6c, 0x77, 0x5a, 0x41,
 	    0xd8, 0xc3, 0xee, 0xf5, 0xb4, 0xaf, 0x82, 0x99,
-	};
+	);
 
-	
-  // looks like we can't get a uint16x8_t output, so have to break up
-  // into two 8x8 lookups. Can we cast to access the halves?
+	// looks like we can't get a uint16x8_t output, so have to break up
+	// into two 8x8 lookups. Can we cast to access the halves?
 
-  // Looks like we want vget high/low..  Actually, we've got 16-bit
-  // values, so the correct thing to do is a mov?
+	// Looks like we want vget high/low..  Actually, we've got 16-bit
+	// values, so the correct thing to do is a mov?
 
-  // vmovn vector move narrow.u16 should do what I want:
-  //  uint8x8_t vmovn_u16 (uint16x8_t)
-  // Form of expected instruction(s): vmovn.i16 d0, q0
+	// vmovn vector move narrow.u16 should do what I want:
+	//  uint8x8_t vmovn_u16 (uint16x8_t)
+	// Form of expected instruction(s): vmovn.i16 d0, q0
 
-  // These should cast 
-  // uint16x8_t reduced_low  = vget_low_u16(top_nibble);
-  // uint16x8_t reduced_high = vget_high_u16(top_nibble);
+	// These should cast 
+	// uint16x8_t reduced_low  = vget_low_u16(top_nibble);
+	// uint16x8_t reduced_high = vget_high_u16(top_nibble);
+
+	//   uint8x8_t reduced = vmovn_u16(top_nibble);
 
 	let mut reduced : uint8x8_t = vmovn_u16(top_nibble);
 
-  // now we should have what we need to do 8x8 table lookups
-//  uint8x8_t lut = vtbl2_u8(u4_0x11b_mod_table, reduced);
+	// now we should have what we need to do 8x8 table lookups
+	//  uint8x8_t lut = vtbl2_u8(u4_0x11b_mod_table, reduced);
+	let lut : uint8x8_t = vtbl2_u8(u4_0x11b_mod_table, reduced);
 
   // Next, have to convert u8 to u16, shifting left 4 bits
 //  poly16x8_t widened = (poly16x8_t) vmovl_u8(lut);
