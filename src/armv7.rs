@@ -145,8 +145,8 @@ mod tests {
 	let mut a : poly8x8_t;
 	let mut b : poly8x8_t;
 	unsafe {
-	    a : poly8x8_t = transmute ( a_array );
-	    b : poly8x8_t = transmute ( b_array );
+	    a = transmute ( a_array );
+	    b = transmute ( b_array );
 	}
 	let mut r : poly8x8_t;
 
