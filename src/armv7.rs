@@ -99,9 +99,12 @@ pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 	widened = vreinterpretq_p16_u16(vshlq_n_u16(vreinterpretq_u16_p16(widened), 4));
 
 
-  // uint16x8_t veorqq_u16 (uint16x8_t, uint16x8_t)
-  // Form of expected instruction(s): veorq q0, q0, q0
-//  working = (poly16x8_t) veorq_u16((uint16x8_t) working, (uint16x8_t) widened);
+	// uint16x8_t veorqq_u16 (uint16x8_t, uint16x8_t)
+	// Form of expected instruction(s): veorq q0, q0, q0
+	//  working = (poly16x8_t) veorq_u16((uint16x8_t) working, (uint16x8_t) widened);
+	working = vreinterpretq_p16_u16(veorq_u16(
+	    vreinterpretq_u16_p16(working),
+	    vreinterpretq_u16_p16(widened)));
 
   // First LUT complete... repeat steps
   
