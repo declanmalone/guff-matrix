@@ -114,9 +114,9 @@ pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 
 	// Now just copy/paste other steps
 	//  top_nibble = vshrq_n_u16 ((uint16x8_t) top_nibble, 12);
-	top_nibble = uint16x8_t = vshrq_n_u16 (vreinterpretq_u16_p16(working), 12);
+	top_nibble = vshrq_n_u16 (vreinterpretq_u16_p16(working), 12);
 	//  reduced = vmovn_u16(top_nibble);
-	reduced = uint8x8_t = vmovn_u16(top_nibble);
+	reduced = vmovn_u16(top_nibble);
 	//  lut = vtbl2_u8(u4_0x11b_mod_table, reduced);
 	lut = vtbl2_u8(u4_0x11b_mod_table, reduced);
 	//  widened = (poly16x8_t) vmovl_u8(lut);
