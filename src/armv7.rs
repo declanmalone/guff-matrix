@@ -149,7 +149,7 @@ mod tests {
 	let result : Vec<u8> = vec![0;8];
 
 	let f = new_gf8(0x11b, 0x1b);
-	simd_mull_reduce_poly8x8(mut result.as_ptr(), &a, &b);
+	simd_mull_reduce_poly8x8(result.as_mut_ptr(), &a, &b);
 
 	
 //	let poly8x8_t (r0,r1,r2,r3,r4,r5,r6,r7,r8) = r;
