@@ -6,7 +6,8 @@ use core::arch::arm::*;
 #[cfg(target_arch = "aarch64")]
 use core::arch::aarch64::*;
 
-use core::core_arch::simd::*;
+// No: private
+// use core::core_arch::simd::*;
 
 // looking at https://doc.rust-lang.org/core/arch/arm/
 //
@@ -58,8 +59,8 @@ pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 //    0xd8, 0xc3, 0xee, 0xf5, 0xb4, 0xaf, 0x82, 0x99,
 //  };
 
-	let tbl_1 = uint8x8_t (0x00, 0x1b, 0x36, 0x2d, 0x6c, 0x77, 0x5a, 0x41, );
-	let tbl_2 = uint8x8_t (0xd8, 0xc3, 0xee, 0xf5, 0xb4, 0xaf, 0x82, 0x99, );
+	let tbl_1 : uint8x8_t [0x00, 0x1b, 0x36, 0x2d, 0x6c, 0x77, 0x5a, 0x41, ].into();
+	let tbl_2 : uint8x8_t [0xd8, 0xc3, 0xee, 0xf5, 0xb4, 0xaf, 0x82, 0x99, ].into();
 	let u4_0x11b_mod_table = uint8x8x2_t ( tbl_1, tbl_2 );
 
 	// looks like we can't get a uint16x8_t output, so have to break up
