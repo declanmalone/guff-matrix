@@ -134,13 +134,15 @@ pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 
 mod tests {
     use super::*;
-    use guff::new_gf8;
+    use guff::{GaloisField,new_gf8};
 
     #[test]
     fn test_mull_reduce_poly8x8() {
 	let mut fails = 0;
-	let a : poly8x8_t = transmute ( [0,10,20,30,40,50,60,70] );
-	let b : poly8x8_t = transmute ( [8,9,10,11,12,13,14,15] );
+	let a_array = [0u8,10,20,30,40,50,60,70];
+	let b_array = [8u8,9,10,11,12,13,14,15];
+	let a : poly8x8_t = transmute ( a_array );
+	let b : poly8x8_t = transmute ( b_array );
 	let mut r : poly8x8_t;
 
 	let f = new_gf8(0x11b, 0x1b);
@@ -150,7 +152,7 @@ mod tests {
 	
 	for i in 0 .. 8 {
 	    let got = result[i];
-	    let expect = f.mul(a[i], b[i]);
+	    let expect = f.mul(a_array[i], b_array[i]);
 	    assert_eq!(got, expect);
 	}
     }
