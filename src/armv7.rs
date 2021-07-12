@@ -142,7 +142,8 @@ mod tests {
 	let mut fails = 0;
 	let a_array = [0u8,10,20,30,40,50,60,70];
 	let b_array = [8u8,9,10,11,12,13,14,15];
-	let a : poly8x8_t, b : poly8x8_t;
+	let mut a : poly8x8_t;
+	let mut b : poly8x8_t;
 	unsafe {
 	    a : poly8x8_t = transmute ( a_array );
 	    b : poly8x8_t = transmute ( b_array );
