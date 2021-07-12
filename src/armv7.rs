@@ -120,8 +120,8 @@ pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 	// apply mask (vand expects 2 registers, so use shl, shr combo)
 	//  working = (poly16x8_t) vshlq_n_u16 ((uint16x8_t) working, 8);
 	//  working = (poly16x8_t) vshrq_n_u16 ((uint16x8_t) working, 8);
-	working = vshlq_n_u16 (vreinterpretq_u16_p16(working), 8);
-	working = vshrq_n_u16 (vreinterpretq_u16_p16(working), 8);
+	working = vreinterpretq_p16_u16(vshlq_n_u16 (vreinterpretq_u16_p16(working), 8));
+	working = vreinterpretq_p16_u16(vshrq_n_u16 (vreinterpretq_u16_p16(working), 8));
 
 	// use narrowing mov to send back result
 	//  *result = (poly8x8_t) vmovn_u16((uint16x8_t) working);
