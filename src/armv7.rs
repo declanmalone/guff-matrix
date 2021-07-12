@@ -63,6 +63,7 @@ pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 //    0xd8, 0xc3, 0xee, 0xf5, 0xb4, 0xaf, 0x82, 0x99,
 //  };
 
+	// shift table for poly 0x11b
 	let tbl_1 : uint8x8_t = transmute([0x00u8, 0x1b, 0x36, 0x2d, 0x6c, 0x77, 0x5a, 0x41, ]);
 	let tbl_2 : uint8x8_t = transmute([0xd8u8, 0xc3, 0xee, 0xf5, 0xb4, 0xaf, 0x82, 0x99, ]);
 	let u4_0x11b_mod_table = uint8x8x2_t ( tbl_1, tbl_2 );
@@ -126,5 +127,29 @@ pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 	// use narrowing mov to send back result
 	//  *result = (poly8x8_t) vmovn_u16((uint16x8_t) working);
 	*result = vreinterpret_p8_u8(vmovn_u16(vreinterpretq_u16_p16(working)));
+    }
+}
+
+#[cfg(test)]
+
+mod tests {
+    use super::*;
+    use guff::new_gf8;
+
+    #[test]
+    fn test_mull_reduce_poly8x8() {
+	let mut fails = 0;
+	let a : poly8x8_t = transmute ( 0,10,20,30,40,50,60,70 );
+	let b : poly8x8_t = transmute ( 8,9,10,11,12,13,14,15 );
+	let mut result : poly8x8_t;
+
+	let f = new_gf8(0x11b, 0x1b);
+
+	simd_mull_reduce_poly8x8(&mut result, &a, &b);
+	for index in 0 .. 8 {
+	    let got = result[i];
+	    let expect = reference_mul(0x11b, a[i], b[i]);
+	    assert_eq!(got, expect);
+	}
     }
 }
