@@ -106,18 +106,28 @@ pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 	    vreinterpretq_u16_p16(working),
 	    vreinterpretq_u16_p16(widened)));
 
-  // First LUT complete... repeat steps
+	// First LUT complete... repeat steps
   
-  // extra step to clear top nibble
-//  top_nibble = vshlq_n_u16 ((uint16x8_t) working, 4);
-  // to get at the one to its right
-//  top_nibble = vshrq_n_u16 ((uint16x8_t) top_nibble, 12);
-//  reduced = vmovn_u16(top_nibble);
-//  lut = vtbl2_u8(u4_0x11b_mod_table, reduced);
-//  widened = (poly16x8_t) vmovl_u8(lut);
-  // remove step, since we're applying to low byte
-  // widened = (poly16x8_t) vshlq_n_u16((uint16x8_t) widened, 4);
-//  working = (poly16x8_t) veorq_u16((uint16x8_t) working, (uint16x8_t) widened);
+	// extra step to clear top nibble to get at the one to its right
+	//  top_nibble = vshlq_n_u16 ((uint16x8_t) working, 4);
+	top_nibble = vshlq_n_u16 (vreinterpretq_u16_p16(working), 4);
+
+	// Now just copy/paste other steps
+	//  top_nibble = vshrq_n_u16 ((uint16x8_t) top_nibble, 12);
+	top_nibble : uint16x8_t = vshrq_n_u16 (vreinterpretq_u16_p16(working), 12);
+	//  reduced = vmovn_u16(top_nibble);
+	reduced : uint8x8_t = vmovn_u16(top_nibble);
+	//  lut = vtbl2_u8(u4_0x11b_mod_table, reduced);
+	lut = vtbl2_u8(u4_0x11b_mod_table, reduced);
+	//  widened = (poly16x8_t) vmovl_u8(lut);
+	widened = vreinterpretq_p16_u16(vmovl_u8(lut));
+	// remove step, since we're applying to low byte
+	// // widened = (poly16x8_t) vshlq_n_u16((uint16x8_t) widened, 4);
+	
+	// working = (poly16x8_t) veorq_u16((uint16x8_t) working, (uint16x8_t) widened);
+	working = vreinterpretq_p16_u16(veorq_u16(
+	    vreinterpretq_u16_p16(working),
+	    vreinterpretq_u16_p16(widened)));
 
   // apply mask (vand expects 2 registers, so use shl, shr combo)
   //  working = (poly16x8_t) vshlq_n_u16 ((uint16x8_t) working, 8);
