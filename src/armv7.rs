@@ -55,7 +55,7 @@ pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 
 	// // copy result, and shift right
 	// uint16x8_t top_nibble = vshrq_n_u16 ((uint16x8_t) working, 12);
-	let top_nibble : uint16x8_t = vshrq_n_u16 (vreinterpretq_u16_p16(working), 12);
+	let mut top_nibble : uint16x8_t = vshrq_n_u16 (vreinterpretq_u16_p16(working), 12);
 
 //  // was uint8x16_t, but vtbl 
 //  static uint8x8x2_t u4_0x11b_mod_table =  {
@@ -87,7 +87,7 @@ pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 
 	// now we should have what we need to do 8x8 table lookups
 	//  uint8x8_t lut = vtbl2_u8(u4_0x11b_mod_table, reduced);
-	let lut : uint8x8_t = vtbl2_u8(u4_0x11b_mod_table, reduced);
+	let mut lut : uint8x8_t = vtbl2_u8(u4_0x11b_mod_table, reduced);
 
 	// Next, have to convert u8 to u16, shifting left 4 bits
 	//  poly16x8_t widened = (poly16x8_t) vmovl_u8(lut);
