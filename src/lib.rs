@@ -75,7 +75,7 @@ macro_rules! new_xform_reader {
 #[cfg_attr(any(target_arch = "x86", target_arch = "x86_64"), path = "x86.rs")]
 #[cfg_attr(all(target_arch = "arm", target_feature = "neon"), path = "armv7.rs")]
 #[cfg_attr(all(target_arch = "arm"), path = "armv6.rs")]
-#[cfg_attr(all(target_arch = "aarch64", feature = "pmull"), path = "armv8.rs")]
+#[cfg_attr(all(target_arch = "aarch64"), path = "armv8.rs")]
 mod arch;
 
 #[cfg(feature = "fake-simd")]

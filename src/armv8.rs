@@ -48,7 +48,7 @@ use core::arch::arm::*;
 // void simd_mull_reduce_poly8x8(poly8x8_t *result,
 //			      poly8x8_t *a, poly8x8_t *b) {
 
-simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
+pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 			 a : &poly8x8_t, b: &poly8x8_t) {
 
     // // do non-modular poly multiply
