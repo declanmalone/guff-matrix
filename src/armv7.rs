@@ -125,6 +125,6 @@ pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 
 	// use narrowing mov to send back result
 	//  *result = (poly8x8_t) vmovn_u16((uint16x8_t) working);
-	*result = vreinterpretq_p8_u8(vmovn_u16(vreinterpretq_u16_p16(working)));
+	*result = transmute(vmovn_u16(vreinterpretq_u16_p16(working)));
     }
 }
