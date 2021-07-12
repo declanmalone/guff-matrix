@@ -50,3 +50,16 @@ pub unsafe fn vmul_f8x16(mut a : __m128i, b : __m128i, poly : u8) -> __m128i {
 }
 
 
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use guff::{GaloisField,new_gf8};
+
+    #[test]
+    fn vmul_f8x16() {
+	return;
+	todo!();
+    }
+
+}

@@ -53,18 +53,19 @@ PlayStation 3. It is available
 I will implement three different SIMD engines for field
 multiplication across vectors:
 
-* x86 implementation of parallel long (bitwise) multiplication
+- [x] x86 implementation of parallel long (bitwise) multiplication
 
-* Aarch64 (armv8) implementation using hardware polynomial multiply
-  and table-based modular reduction
+- [x] Arm/Aarch64 NEON implementation using hardware polynomial
+      multiply and table-based modular reduction (vmull/tvbl)
 
-* ARM NEON (armv7) implementation of parallel long (bitwise)
-  multiplication
+- [x] Arm NEON implementation of parallel long (bitwise) multiplication
 
 I also have a 4-way armv6 (Thumb) implementation of the long
 multiplication routine, which I may add for completeness. Its
 performance is roughly comparable to doing four single multiply using
 lookup tables, only slightly worse.
+
+Support for Arm targets requires nightly Rust build.
 
 ## Infinite Tape (Simulation)
 
