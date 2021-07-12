@@ -29,3 +29,4 @@ guff = "0.1.7"
 
 [features]
 fake-simd = []
+pmull = []

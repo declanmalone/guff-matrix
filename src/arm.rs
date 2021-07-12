@@ -87,37 +87,16 @@ fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 	0xd8, 0xc3, 0xee, 0xf5, 0xb4, 0xaf, 0x82, 0x99,
     };
     unsafe {
-	asm!( "vmull.p8  {3}, {1}, {2}
-	       vld1.64   {{ d16-d17 }}, [{4}]  @ load lut
-              ",
+	asm!( "vmull.p8  {3}, {1}, {2}",
 	       out(reg) result,
 	       in(reg) a,
 	       in(reg) b,
 	       in(reg) working,
-	       
 	);
-
-               "vshr.u16  q9, q10, #12
-	       vmovn.i16 d18, q9
-	       vtbl.8    d18, {{ d16, d17 }}, d18 @ first lut
-	       vmovl.u8  q9, d18
-	       vshl.i16  q9, q9, #4
-	       veor      q9, q10, q9
-	       vshl.i16  q10, q9, #4
-	       vshr.u16  q10, q10, #12
-	       vmovn.i16 d20, q10
-	       vtbl.8    d16, {{ d16, d17 }}, d20 @ second lut
-	       vmovl.u8  q8, d16
-	       veor      q8, q8, q9
-	       vshl.i16  q8, q8, #8
-	       vshr.u16  q8, q8, #8
-	       @ store result
-	       vstr      d16, [sp, #32]
-	       vstr      d17, [sp, #40]
-	       ";
-
+    }
     
 }
+
 
 fn random_example() {
     
