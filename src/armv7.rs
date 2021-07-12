@@ -142,11 +142,14 @@ mod tests {
 	let mut fails = 0;
 	let a_array = [0u8,10,20,30,40,50,60,70];
 	let b_array = [8u8,9,10,11,12,13,14,15];
-	let a : poly8x8_t = transmute ( a_array );
-	let b : poly8x8_t = transmute ( b_array );
+	let a : poly8x8_t, b : poly8x8_t;
+	unsafe {
+	    a : poly8x8_t = transmute ( a_array );
+	    b : poly8x8_t = transmute ( b_array );
+	}
 	let mut r : poly8x8_t;
 
-	let result : Vec<u8> = vec![0;8];
+	let mut result : Vec<u8> = vec![0;8];
 
 	let f = new_gf8(0x11b, 0x1b);
 	simd_mull_reduce_poly8x8(result.as_mut_ptr(), &a, &b);
