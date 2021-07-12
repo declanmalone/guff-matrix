@@ -1,10 +1,10 @@
 
+#![feature(stdsimd)]
+
 #[cfg(target_arch = "arm")]
 use core::arch::arm::*;
 #[cfg(target_arch = "aarch64")]
 use core::arch::aarch64::*;
-
-#![feature(stdsimd)]
 
 // looking at https://doc.rust-lang.org/core/arch/arm/
 //
