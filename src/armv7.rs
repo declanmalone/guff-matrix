@@ -139,14 +139,14 @@ mod tests {
     #[test]
     fn test_mull_reduce_poly8x8() {
 	let mut fails = 0;
-	let a : poly8x8_t = transmute ( 0,10,20,30,40,50,60,70 );
-	let b : poly8x8_t = transmute ( 8,9,10,11,12,13,14,15 );
+	let a : poly8x8_t = transmute ( [0,10,20,30,40,50,60,70] );
+	let b : poly8x8_t = transmute ( [8,9,10,11,12,13,14,15] );
 	let mut result : poly8x8_t;
 
 	let f = new_gf8(0x11b, 0x1b);
 
 	simd_mull_reduce_poly8x8(&mut result, &a, &b);
-	for index in 0 .. 8 {
+	for i in 0 .. 8 {
 	    let got = result[i];
 	    let expect = reference_mul(0x11b, a[i], b[i]);
 	    assert_eq!(got, expect);
