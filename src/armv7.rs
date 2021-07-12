@@ -1,4 +1,4 @@
-#![feature(stdsimd)]
+//#![feature(stdsimd)]
 
 
 #[cfg(target_arch = "arm")]
