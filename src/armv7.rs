@@ -45,7 +45,7 @@ use std::mem::transmute;
 // void simd_mull_reduce_poly8x8(poly8x8_t *result,
 //			      poly8x8_t *a, poly8x8_t *b) {
 
-pub fn simd_mull_reduce_poly8x8(result : &mut [u8;8],
+pub fn simd_mull_reduce_poly8x8(result : *mut u8,
 			 a : &poly8x8_t, b: &poly8x8_t) {
 
     unsafe {
@@ -126,7 +126,7 @@ pub fn simd_mull_reduce_poly8x8(result : &mut [u8;8],
 
 	// use narrowing mov to send back result
 	//  *result = (poly8x8_t) vmovn_u16((uint16x8_t) working);
-	let narrowed : poly8x8_t = vmovn_u16(vreinterpretq_u16_p16(working));
+	let narrowed : uint8x8_t = vmovn_u16(vreinterpretq_u16_p16(working));
 	vst1_p8(result, narrowed)
 	
     }
