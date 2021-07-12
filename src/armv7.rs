@@ -57,11 +57,11 @@ pub fn simd_mull_reduce_poly8x8(result : *mut u8,
 	// uint16x8_t top_nibble = vshrq_n_u16 ((uint16x8_t) working, 12);
 	let mut top_nibble : uint16x8_t = vshrq_n_u16 (vreinterpretq_u16_p16(working), 12);
 
-//  // was uint8x16_t, but vtbl 
-//  static uint8x8x2_t u4_0x11b_mod_table =  {
-//    0x00, 0x1b, 0x36, 0x2d, 0x6c, 0x77, 0x5a, 0x41,
-//    0xd8, 0xc3, 0xee, 0xf5, 0xb4, 0xaf, 0x82, 0x99,
-//  };
+	//  // was uint8x16_t, but vtbl 
+	//  static uint8x8x2_t u4_0x11b_mod_table =  {
+	//    0x00, 0x1b, 0x36, 0x2d, 0x6c, 0x77, 0x5a, 0x41,
+	//    0xd8, 0xc3, 0xee, 0xf5, 0xb4, 0xaf, 0x82, 0x99,
+	//  };
 
 	// shift table for poly 0x11b
 	let tbl_1 : uint8x8_t = transmute([0x00u8, 0x1b, 0x36, 0x2d, 0x6c, 0x77, 0x5a, 0x41, ]);
@@ -142,8 +142,8 @@ mod tests {
 	let mut fails = 0;
 	let a_array = [0u8,10,20,30,40,50,60,70];
 	let b_array = [8u8,9,10,11,12,13,14,15];
-	let mut a : poly8x8_t;
-	let mut b : poly8x8_t;
+	let a : poly8x8_t;
+	let b : poly8x8_t;
 	unsafe {
 	    a = transmute ( a_array );
 	    b = transmute ( b_array );
@@ -155,12 +155,8 @@ mod tests {
 	let f = new_gf8(0x11b, 0x1b);
 	simd_mull_reduce_poly8x8(result.as_mut_ptr(), &a, &b);
 
-	
-//	let poly8x8_t (r0,r1,r2,r3,r4,r5,r6,r7,r8) = r;
-//	let result : Vec<u8> = vec![r0,r1,r2,r3,r4,r5,r6,r7,r8];
-	
 	for i in 0 .. 8 {
-	    let got = result[i];
+	    let got    = result[i];
 	    let expect = f.mul(a_array[i], b_array[i]);
 	    assert_eq!(got, expect);
 	}

@@ -1,6 +1,6 @@
 [package]
 name = "guff-matrix"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2018"
 description = "Fast Galois Field matrix multiplication"
 homepage = "https://github.com/declanmalone/guff"
@@ -29,4 +29,4 @@ guff = "0.1.7"
 
 [features]
 fake-simd = []
-pmull = []
+
