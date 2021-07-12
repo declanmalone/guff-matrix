@@ -40,13 +40,14 @@ use core::arch::aarch64::*;
 pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 			 a : &poly8x8_t, b: &poly8x8_t) {
 
-    // // do non-modular poly multiply
-    // poly16x8_t working = vmull_p8(*a,*b);
-    let mut working : poly16x8_t = vmull_p8(*a, *b);
+    unsafe {
+	// // do non-modular poly multiply
+	// poly16x8_t working = vmull_p8(*a,*b);
+	let mut working : poly16x8_t = vmull_p8(*a, *b);
 
-    // // copy result, and shift right
-    // uint16x8_t top_nibble = vshrq_n_u16 ((uint16x8_t) working, 12);
-    let top_nibble : uint16x8_t = vshrq_n_u16 (vreinterpretq_u16_p16(working), 12);
+	// // copy result, and shift right
+	// uint16x8_t top_nibble = vshrq_n_u16 ((uint16x8_t) working, 12);
+	let top_nibble : uint16x8_t = vshrq_n_u16 (vreinterpretq_u16_p16(working), 12);
 
 //  // was uint8x16_t, but vtbl 
 //  static uint8x8x2_t u4_0x11b_mod_table =  {
@@ -103,4 +104,6 @@ pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 
   // use narrowing mov to send back result
 //  *result = (poly8x8_t) vmovn_u16((uint16x8_t) working);
+
+    }
 }
