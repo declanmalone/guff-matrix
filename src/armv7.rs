@@ -6,6 +6,8 @@ use core::arch::arm::*;
 #[cfg(target_arch = "aarch64")]
 use core::arch::aarch64::*;
 
+use stdsimd::*;
+
 // No: private
 // use core::core_arch::simd::*;
 
