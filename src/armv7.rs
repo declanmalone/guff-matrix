@@ -4,6 +4,8 @@ use core::arch::arm::*;
 #[cfg(target_arch = "aarch64")]
 use core::arch::aarch64::*;
 
+#![feature(stdsimd)]
+
 // looking at https://doc.rust-lang.org/core/arch/arm/
 //
 // all sorts of intrinsics are missing... not just vmull
@@ -41,7 +43,7 @@ pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 
     // // do non-modular poly multiply
     // poly16x8_t working = vmull_p8(*a,*b);
-    let mut working : poly16x8_t = vmull_p8(a, b);
+    let mut working : poly16x8_t = vmull_p8(*a, *b);
 
     // // copy result, and shift right
     // uint16x8_t top_nibble = vshrq_n_u16 ((uint16x8_t) working, 12);
