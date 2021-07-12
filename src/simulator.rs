@@ -155,9 +155,9 @@
 // Output tape
 //
 // After calculating a dot product, we store it at the current output
-// pointer, then we advance that by w*(k + n). This proceeds along the
-// diagonal in the matrix. When the pointer goes past the end of the
-// matrix (ie, ptr > n * c * k), we subtract the length of the matrix.
+// pointer, then we advance along the diagonal. When we go past the
+// bottom or right side of the matrix, we reset the row or column,
+// respectively, to zero.
 //
 // If c has a factor that is coprime to k and n, then each time we
 // wrap around the output matrix, we will be starting from a new point

@@ -32,9 +32,7 @@ The matrices are organised in memory as follows:
 * output is either
 
 In order to facilitate wrap-around at the end of the transform matrix,
-if `k * n` is not a multiple of the SIMD width, we copy enough
-elements from the start of the matrix to the end in order to make it a
-multiple. This avoids the need to do conditional reads from memory.
+if `k * n` is not a multiple of the SIMD width, we 
 
 The input matrix also has an extra simd_width bytes copied from the
 start of the matrix. This is to deal with wrap-around for all
@@ -58,7 +56,7 @@ multiplication across vectors:
 - [x] Arm/Aarch64 NEON implementation using hardware polynomial
       multiply and table-based modular reduction (vmull/tvbl)
 
-- [x] Arm NEON implementation of parallel long (bitwise) multiplication
+- [ ] Arm NEON implementation of parallel long (bitwise) multiplication
 
 I also have a 4-way armv6 (Thumb) implementation of the long
 multiplication routine, which I may add for completeness. Its
@@ -75,7 +73,7 @@ non-SIMD version that uses the same basic ideas, but using a more
 rusty style (infinite iterators). That's in `src/arch.rs` and can be
 enabled as a feature:
 
-    cargo test --features fake-simd
+    cargo test --features simulation
 
 I'll also use this to prove that the algorithm works as intended.
 
