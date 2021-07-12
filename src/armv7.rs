@@ -126,8 +126,8 @@ pub fn simd_mull_reduce_poly8x8(result : &mut [u8;8],
 
 	// use narrowing mov to send back result
 	//  *result = (poly8x8_t) vmovn_u16((uint16x8_t) working);
-	working = vmovn_u16(vreinterpretq_u16_p16(working));
-	vst1_p8(result, working)
+	let narrowed : poly8x8_t = vmovn_u16(vreinterpretq_u16_p16(working));
+	vst1_p8(result, narrowed)
 	
     }
 }
@@ -147,11 +147,11 @@ mod tests {
 	let b : poly8x8_t = transmute ( b_array );
 	let mut r : poly8x8_t;
 
+	let result : Vec<u8> = vec![0;8];
+
 	let f = new_gf8(0x11b, 0x1b);
-	simd_mull_reduce_poly8x8(&mut result, &a, &b);
+	simd_mull_reduce_poly8x8(&mut result[..], &a, &b);
 
-
-	let result : Vec<u8> = r as Vec<u8>;
 	
 //	let poly8x8_t (r0,r1,r2,r3,r4,r5,r6,r7,r8) = r;
 //	let result : Vec<u8> = vec![r0,r1,r2,r3,r4,r5,r6,r7,r8];
