@@ -91,7 +91,7 @@ pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 
 	// Next, have to convert u8 to u16, shifting left 4 bits
 	//  poly16x8_t widened = (poly16x8_t) vmovl_u8(lut);
-	let mut widened : poly16x8_t = vreinterpretq_p16_u8(vmovl_u8(vreinterpretq_u8_u16(lut)));
+	let mut widened : poly16x8_t = vreinterpretq_p16_u8(vmovl_u8(vreinterpretq_u8_u8(lut)));
 
 	// uint16x8_t vshlq_n_u16 (uint16x8_t, const int)
 	// Form of expected instruction(s): vshl.i16 q0, q0, #0
