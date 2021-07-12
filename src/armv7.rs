@@ -149,8 +149,10 @@ mod tests {
 	simd_mull_reduce_poly8x8(&mut result, &a, &b);
 
 
-	let poly8x8_t (r0,r1,r2,r3,r4,r5,r6,r7,r8) = r;
-	let result : Vec<u8> = vec![r0,r1,r2,r3,r4,r5,r6,r7,r8];
+	let result : Vec<u8> = r as Vec<u8>;
+	
+//	let poly8x8_t (r0,r1,r2,r3,r4,r5,r6,r7,r8) = r;
+//	let result : Vec<u8> = vec![r0,r1,r2,r3,r4,r5,r6,r7,r8];
 	
 	for i in 0 .. 8 {
 	    let got = result[i];
