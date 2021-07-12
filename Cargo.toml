@@ -28,5 +28,18 @@ debug = true
 guff = "0.1.7"
 
 [features]
-fake-simd = []
+# enable software simulation of matrix multiply algorithm
+# makes crate::simulator available.
+simulator = []
 
+# enable 'arm_dsp' on armv6/armv7 boards with 'dsp' extension
+# for 4-way simd long multiplication
+arm_dsp = []
+
+# enable 'arm_long' on armv7+neon/armv8 boards 
+# for 16-way simd long multiplication
+arm_long = []
+
+# enable 'arm_vmull' on armv7+neon/armv8 boards
+# for 8-way simd long multiplication (fastest!)
+arm_vmull = []
