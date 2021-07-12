@@ -1,8 +1,10 @@
-
+//! Non-SIMD, pure Rust simulation of matrix multiplication algorithm
+//!
+//! See [warm_multiply] or program source for details.
 
 // Wrap-around reads/multiplies on matrices
-
-// basics:
+//
+// Basics of how to do this with SIMD reads:
 //
 // * all reads will be aligned (assuming start of matrix is)
 // * use read buffers comprising two SIMD registers 
@@ -275,7 +277,7 @@ pub struct MultiplyStream<'a> {
     input : &'a mut Iterator<Item=u8>,
     // can't I store a ref to something implementing GaloisField?
     // field : &'a dyn GaloisField<E=u8, EE=u16, SEE=i16>,
-    field : &'a F8,  // use default implementation instead
+    field : &'a F8,  // use concrete implementation instead
 }
 
 impl<'a> Iterator for MultiplyStream<'a> {
@@ -286,16 +288,13 @@ impl<'a> Iterator for MultiplyStream<'a> {
 
 	Some(self.field.mul(a,b))
     }
-
 }
 
 #[derive(Debug)]
 pub struct OutputMatrix {
     n : usize,			// rows
     c : usize,			// cols
-    times : usize,
     array : Vec<u8>,		// 
-    write_pointer : usize,
     row : usize,
     col : usize,
     rowwise : bool
@@ -304,11 +303,9 @@ pub struct OutputMatrix {
 impl OutputMatrix {
     fn new(n : usize, c : usize, rowwise : bool) -> Self {
 	let array = vec![0; n * c];
-	let write_pointer = 0;
 	let row = 0;
 	let col = 0;
-	let times = 0;
-	Self { n, c, array, times, write_pointer, row, col, rowwise }
+	Self { n, c, array, row, col, rowwise }
     }
     fn new_rowwise(n : usize, c : usize) -> Self {
 	Self::new(n, c, true)
@@ -330,28 +327,27 @@ impl OutputMatrix {
 	if self.row == self.n { self.row = 0 }
 	self.col += 1;
 	if self.col == self.c { self.col = 0 }
-
-
-	// junk: need separate row, col
-	// offset n + c is along diagonal, regardless of layout
-	//	self.write_pointer += self.n + self.c;
-	self.write_pointer += self.n + 1;
-	if self.write_pointer >= size {
-	    self.write_pointer -= size - 1;
-	    //self.write_pointer  = self.n - self.write_pointer;
-	    //self.times += 1;
-	    //self.write_pointer = self.times;
-	}
     }
 }
 
-// "warm": wrap-around read matrix
-//
-// xform and input are assumed to have data in them
-//
-fn warm_multiply(xform  : &mut TransformMatrix,
-                 input  : &mut InputMatrix,
-                 output : &mut OutputMatrix) {
+/// "warm": "wrap-around read matrix"
+///
+/// This routine treats the transform and input matrices as being
+/// infinite streams, multiplies them, then apportions the products to
+/// the correct dot product sums. Completed dot products are written
+/// out sequentially along the diagonal of the output matrix.
+///
+/// Provided the number of columns in the input and output matrices
+/// (both set to the same value) has a factor that is relatively prime
+/// to both dimensions of the transform matrix, the diagonal traversal
+/// of the output matrix is guaranteed to write to every cell in the
+/// matrix.
+///
+/// xform and input are assumed to have data in them (call
+/// `matrix.fill(...)` first).
+pub fn warm_multiply(xform  : &mut TransformMatrix,
+                     input  : &mut InputMatrix,
+                     output : &mut OutputMatrix) {
 
     // using into_iter() below moves ownership, so pull out any data
     // we need first
@@ -392,6 +388,8 @@ fn warm_multiply(xform  : &mut TransformMatrix,
     // Grand total of n * k * c multiplies:
     let mut m = mstream.take(n * k * c);
     loop {
+	// actual SIMD code will get 8 or 16 values at a time, but for
+	// testing the algorithm, it's OK to go byte-by-byte
         let p = m.next();
         if p == None { break }
 

@@ -22,7 +22,7 @@
 //! ```
 //!
 //! It seems that on armv7 platforms, the rust build system is unable
-//! to detect the availability of `target_feature = ""`. As a
+//! to detect the availability of `target_feature = "neon"`. As a
 //! result, I've added "neon" as a build feature instead. Select it
 //! with:
 //!
@@ -67,22 +67,22 @@
 
 // Only one x86 implementation, included automatically
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-mod x86;
+pub mod x86;
 
 // Implementation (1) above
-#[cfg_attr(all(target_arch = "arm"), feature = "arm_dsp")]
-mod arm_dsp;
+#[cfg(all(target_arch = "arm", feature = "arm_dsp"))]
+pub mod arm_dsp;
 
 // Implementation (2) above
 #[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), feature = "arm_long"))]
-mod arm_long;
+pub mod arm_long;
 
 // Implementation (3) above
 #[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), feature = "arm_vmull"))]
-mod arm_vmull;
+pub mod arm_vmull;
 
 #[cfg(feature = "simulator")]
-mod simulator;
+pub mod simulator;
 
 pub fn gcd(mut a : usize, mut b : usize) -> usize {
   let mut t;
