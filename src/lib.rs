@@ -1,6 +1,17 @@
 //!
 
 
+#![feature(stdsimd)]
+#[cfg(not(feature = "fake-simd"))]
+#[cfg_attr(any(target_arch = "x86", target_arch = "x86_64"), path = "x86.rs")]
+#[cfg_attr(all(any(target_arch = "aarch64", target_arch = "arm"), target_feature = "neon"), path = "armv7.rs")]
+#[cfg_attr(all(target_arch = "arm"), path = "armv6.rs")]
+//#[cfg_attr(all(, path = "armv8.rs")]
+mod arch;
+
+#[cfg(feature = "fake-simd")]
+mod arch;
+
 pub fn gcd(mut a : usize, mut b : usize) -> usize {
   let mut t;
     loop {
@@ -70,17 +81,6 @@ macro_rules! new_xform_reader {
 // init_output_stream!(output.as_ptr())
 //
 // ...
-
-#![feature(stdsimd)]
-#[cfg(not(feature = "fake-simd"))]
-#[cfg_attr(any(target_arch = "x86", target_arch = "x86_64"), path = "x86.rs")]
-#[cfg_attr(all(any(target_arch = "aarch64", target_arch = "arm"), target_feature = "neon"), path = "armv7.rs")]
-#[cfg_attr(all(target_arch = "arm"), path = "armv6.rs")]
-//#[cfg_attr(all(, path = "armv8.rs")]
-mod arch;
-
-#[cfg(feature = "fake-simd")]
-mod arch;
 
 // Matrix sizes
 //
