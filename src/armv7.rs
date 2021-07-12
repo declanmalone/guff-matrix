@@ -70,19 +70,7 @@ pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 	// looks like we can't get a uint16x8_t output, so have to break up
 	// into two 8x8 lookups. Can we cast to access the halves?
 
-	// Looks like we want vget high/low..  Actually, we've got 16-bit
-	// values, so the correct thing to do is a mov?
-
-	// vmovn vector move narrow.u16 should do what I want:
-	//  uint8x8_t vmovn_u16 (uint16x8_t)
-	// Form of expected instruction(s): vmovn.i16 d0, q0
-
-	// These should cast 
-	// uint16x8_t reduced_low  = vget_low_u16(top_nibble);
-	// uint16x8_t reduced_high = vget_high_u16(top_nibble);
-
 	//   uint8x8_t reduced = vmovn_u16(top_nibble);
-
 	let mut reduced : uint8x8_t = vmovn_u16(top_nibble);
 
 	// now we should have what we need to do 8x8 table lookups
@@ -129,12 +117,14 @@ pub fn simd_mull_reduce_poly8x8(result : &mut poly8x8_t,
 	    vreinterpretq_u16_p16(working),
 	    vreinterpretq_u16_p16(widened)));
 
-  // apply mask (vand expects 2 registers, so use shl, shr combo)
-  //  working = (poly16x8_t) vshlq_n_u16 ((uint16x8_t) working, 8);
-  //  working = (poly16x8_t) vshrq_n_u16 ((uint16x8_t) working, 8);
+	// apply mask (vand expects 2 registers, so use shl, shr combo)
+	//  working = (poly16x8_t) vshlq_n_u16 ((uint16x8_t) working, 8);
+	//  working = (poly16x8_t) vshrq_n_u16 ((uint16x8_t) working, 8);
+	working = vshlq_n_u16 (vreinterpretq_u16_p16(working), 8);
+	working = vshrq_n_u16 (vreinterpretq_u16_p16(working), 8);
 
-  // use narrowing mov to send back result
-//  *result = (poly8x8_t) vmovn_u16((uint16x8_t) working);
-
+	// use narrowing mov to send back result
+	//  *result = (poly8x8_t) vmovn_u16((uint16x8_t) working);
+	*result = vreinterpretq_p8_u16(vmovn_u16(vreinterpretq_u16_p16(working)));
     }
 }
