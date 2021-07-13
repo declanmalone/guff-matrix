@@ -125,6 +125,190 @@ struct TransformTape {
     xptr : usize,    // (next) read pointer within matrix
 }
 
+
+// One approach: trait providing matrix multiply over infinite product
+// stream/tape. Then implement the missing bits in each SIMD module.
+//
+trait StreamingMatrixMul {
+
+    type Elem : std::ops::BitXor<Output=Self::Elem>; // eg, u8
+    type SIMD;			// eg, __m128i
+
+    // Make n, c, k and w associated constants.
+
+    // The reason for this is that eventually I might want to have a
+    // derive macro that builds (derives) a matrix solver given the
+    // appropriate types/constants
+    
+    const N : usize;
+    const C : usize;
+    const K : usize;
+    const W : usize;
+    const SIMD_SIZE : usize;	// length of SIMD / length of Elem
+    const DP_FINAL : usize;	// 
+
+    // return zero of appropriate type
+    fn zero_product(&self) -> Self::Elem;
+    // sum across full SIMD vector
+    fn sum_across(&self, v : Self::SIMD) -> Self::Elem;
+    // sum across k % simd_size remainder
+    fn sum_across_remaining(&self, v : Self::SIMD) -> Self::Elem;
+
+    // these eventually read from xform/input matrices
+    fn get_simd_products(&self) -> Self::SIMD;
+    fn get_remaining_products(&self) -> Self::SIMD;
+
+    // this eventually writes to output matrix
+    fn write_next(&self, elem : Self::Elem);
+
+    fn multiply(&self) {
+	let mut product = self.zero_product();
+	let mut dp_remaining = Self::K;
+	let mut written : usize = 0;
+	loop {
+	    // if k >= simd_size, add simd_size products at a time
+	    while dp_remaining >= Self::SIMD_SIZE {
+		product = product ^ self.sum_across(self.get_simd_products());
+		dp_remaining -= Self::SIMD_SIZE
+	    }
+	    // todo: what if we had (simd_size / 2)-way simd engine too?
+
+	    // the remainder will always be k % simd_size
+	    if dp_remaining != 0 {
+		product = product ^ self.sum_across_remaining(self.get_remaining_products())
+	    }
+	    self.write_next(product);
+	    written += 1;
+	    if written == Self::N * Self::C { break }
+	    product = self.zero_product();
+	    dp_remaining = Self::K;
+	}
+    }
+}
+
+// The above could also be written to use methods to determine the
+// constants. The types would still have to be associated types unless
+// we rewrote the above method signatures to return no data apart from
+// maybe a bool, eg:
+//
+// if self.is_kw_gt_simd_size() { self.add_full_simd_products() }
+// if self.is_kw_mod_simd_size_ne_zero() { self.add_remainder() }
+//
+
+// What will implement this? A multiply stream.
+
+// That, in turn, will have to:
+//
+// Store a transform matrix that implements wrap-around read trait
+// Store an input matrix that also implements wrap-around read
+// Store an output matrix that implements diagonal write
+// Interact with a SIMD engine
+//
+// I think that I'll follow much the same idea as in the simulator
+// except that instead of infinite iterator for reads, we work with
+// SIMD-sized chunks.
+
+trait WarmSimd {
+
+    type Elem;
+    type SIMD;
+
+    fn read_next_simd(&self) -> Self::SIMD;
+}
+
+// Optimising for special cases:
+//
+// * xform matrix fits into a small number of SIMD registers
+// * xform is a multiple of SIMD size
+//
+// In the first case, we can read the matrix into a register or
+// register pair and only use rotates.
+//
+// In the second case, we can have simplified wrap-around code because
+// there will be no need for any shifts/rotates.
+//
+// The logical conclusion of this sort of optimisation might be to
+// work on smaller submatrices. 
+
+// Example of first optimisation
+struct SubSimdMatrixStreamer {
+    buffer : [u8;8],
+
+    // "rotate" as a name isn't quite right, but general idea is that
+    // if we have at least one copy of the matrix in the register we
+    // can use shifts and ors to advance the "read pointer" by an
+    // arbitrary amount. For example, if simd size is 8, and matrix is
+    // 6, we start with the following indexes into the matrix:
+    //
+    // [0, 1, 2, 3, 4, 5, 0, 1 ]
+    //
+    // advancing by 8, we want to start at 2 and get:
+    //
+    // [2, 3, 4, 5, 0, 1, 2, 3 ]
+    //
+    // We do so by a combination of shl and shr:
+    //
+    // (buffer << 2) | (buffer >> 4)
+    
+    shl : usize,
+    shr : usize,
+}
+
+impl SubSimdMatrixStreamer {
+
+    // constructor will read from memory and write at least one full
+    // copy and possibly a partial copy into buffer
+
+    //    fn new() -> Self { }
+}
+
+// Now we can make this struct work as a WarmSimd:
+impl WarmSimd for SubSimdMatrixStreamer {
+    type Elem = u8;
+    type SIMD = [u8;8];		// in reality, needs to be generic
+    fn read_next_simd(&self) -> Self::SIMD {
+	let result = self.buffer;
+	// following won't compile yet
+	//	self.buffer = (result << self.shl) | (result >> self.shr);
+	result
+    }
+
+}
+
+// We can have other structures that also implement WarmSimd:
+//
+// * variants of SubSimdMatrixStreamer, where the array fits into two,
+//   three or more SIMD registers (I'm assuming that even though these
+//   values are stored in a struct, when they come to be used by
+//   StreamingMatrixMul, if we inline all the functions, they'll get
+//   loaded once into registers and not be written back out until the
+//   multiply is done; not 100% sure that this is so, though)
+//
+// * more normal case where matrix does not fit in registers, so does
+//   actual wrap-around read on memory.
+//
+
+
+// Another approach ...
+//
+// More of a bottom-up approach: Make some new types representing
+// generic 128-bit and 64-bit SIMD types.
+//
+// Don't have to support every single type of operation... just enough
+// to implement buffering and wrap-around reads.
+//
+
+
+
+
+
+
+//
+// * variant where k % simd_size = 0, so remainder function does
+//   nothing (actually applies to StreamingMatrixMul, not WarmSimd)
+// 
+
+
 // My first macro. I think that it will be easier to write a generic
 // version of the multiply routine that works across architectures if
 // I can hide both register types (eg, _m128* on x86) and intrinsics.

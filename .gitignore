@@ -11,3 +11,4 @@ Cargo.lock
 
 *~
 
+cube_do_inline_always_native.s cube_do_inline_always.s cube_do_inline.s cube_no_inline.s
