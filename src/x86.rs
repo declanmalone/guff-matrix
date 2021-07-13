@@ -145,8 +145,8 @@ pub unsafe fn vmul_p8_buffer(dest : &mut [u8], av : &[u8], bv : &[u8], poly : u8
 	let mut cond : __m128i;
 	
 	// read in a, b from memory
-	a = _mm_load_si128(av);
-	b = _mm_load_si128(bv);
+	a = _mm_lddqu_si128(av); // _mm_load_si128(av); // must be aligned
+	b = _mm_lddqu_si128(bv); // *bv also crashes
 	av = av.offset(1);	// offset for i128 type, not bytes!
 	bv = bv.offset(1);
 
@@ -317,7 +317,7 @@ mod tests {
     }
 
     // crashes as expected if I use _mm_load_si128(av);
-    // #[test]
+    #[test]
     fn test_vmul_p8_buffer_unaligned() {
 	unsafe  {
 
