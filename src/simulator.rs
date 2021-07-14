@@ -200,6 +200,7 @@
 // just set w=1 and type = u8 for convenience
 
 use crate::*;
+use core::mem::size_of;
 
 #[derive(Debug, Clone)]
 pub struct TransformMatrix {
@@ -443,6 +444,248 @@ pub fn interleave_streams(dest : &mut [u8], slices : &Vec<&[u8]>) {
 	}
     }
 }
+
+
+// SIMD simulation
+//
+// I've looked at various options for laying out the code in a
+// portable way. I'm going to implement that here first using a
+// simulated SIMD engine.
+
+// This trait will be in main module and will have to be implemented
+// for each architecture
+pub trait Simd {
+    type E;			// elemental type, eg u8
+    type V;			// vector type, eg [u8; 8]
+
+    // required methods
+    fn cross_product(a : Self, b : Self) -> Self;
+    // to-do: consume and sum products
+}
+
+// Newtype for our fake architecture
+
+// It's usual to implement, eg Simd(u128), but then we don't know what
+// type the lanes are. We could do a variant, eg SimdU8(u128) to
+// indicate that there are 16 u8s in the vector, but I'll use
+// associated types (see Simd, above).
+
+pub struct SimSimd {
+    vec : [u8; 8],
+}
+
+impl Simd for SimSimd {
+    type V = [u8; 8];
+    type E = u8;
+
+    fn cross_product(a : Self, b : Self) -> Self {
+	a // to-do: multiply
+    }
+    // to-do: summing products, updating registers
+}
+
+// Can I reuse the above matrices? Yes, I think so. I'll use the same
+// read_pointer variable that's already in them.
+//
+// Actually no. Not like this, anyway:
+// impl Iterator for InputMatrix {
+//     type = SimSimd;
+//     fn next(&mut self) -> Option<Self::Item> {
+// 	let val = self.array[self.read_pointer];
+// 	Some(val)
+//     }
+// }
+//
+// There may be another way. It involves wrapping the original...
+// struct SimSimdInputMatrix(InputMatrix);
+// impl SimSimdInputMatrix {
+//     fn new(k : usize, c : usize) -> Self {
+// 	Self(InputMatrix::new(k,c))
+//     }
+//     fn fill(&mut self, slice : &[u8]) -> &mut Self {
+// 	&mut Self(*self.0.fill(slice))
+//     }
+// }
+//
+// You know what? That's more effort than just copying the original.
+//
+// I guess that I could make a newtype over just the array's contents
+// (a slice) and then have a trait SimSimdSpecificIterator local to
+// this module. It's the same as the wrapping above, but with no
+// pass-through required, I think. The downside is that we lose out on
+// being able to use the generic matrix multiply code.
+//
+// Anyhow, since it's only a small bit of repeated code, and different
+// SIMD iterators will need different setups anyway, it's not worth
+// worrying about.
+
+#[derive(Debug)]
+pub struct SimSimdInputMatrix {
+    k : usize,			// rows
+    c : usize,			// cols
+    array : Vec<u8>,		// colwise storage
+    read_pointer : usize,	// other simd engines may differ here
+}
+
+impl SimSimdInputMatrix {
+    // rather than copying this code, could just use
+    // SimSimdInputMatrix { k: ...  }-style construction (cuts down on
+    // boilerplate here, but more of it in test cases/demo code.
+    fn new(k : usize, c : usize) -> Self {
+	let array = vec![0; k * c];
+	let read_pointer = 0;
+	Self { k, c, array, read_pointer }
+    }
+    fn fill(&mut self, slice : &[u8]) -> &mut Self {
+	self.array.copy_from_slice(slice);
+	self
+    }
+}
+
+impl Iterator for SimSimdInputMatrix {
+    type Item = SimSimd;
+    fn next(&mut self) -> Option<Self::Item> {
+	// let simd_width = size_of::<SimSimd>();
+ 	let mut val = [0u8;8];
+	let mut offset = self.read_pointer;
+	for i in 0..8 {
+	    val[i] = self.array[offset];
+	    offset += 1;
+	    if offset == self.k * self.c {
+		offset = 1;
+	    }
+	}
+	self.read_pointer = offset;
+ 	Some(SimSimd{vec : val})
+    }
+}
+
+// same for TransformMatrix, but skip constructor boilerplate. Prefix
+// all names with SimSimd as before:
+#[derive(Debug, Clone)]
+pub struct SimSimdTransformMatrix {
+    n : usize,			// rows
+    k : usize,			// cols
+    array : Vec<u8>,		// colwise storage
+    read_pointer : usize,
+}
+
+impl SimSimdTransformMatrix {}
+
+// implementation differs due to differing (rowwise) layout and
+// different naming of rows/cols.
+//
+// I would have saved some typing if I had just made a "Matrix" and
+// stored rowwise/colwise parameter)
+impl Iterator for SimSimdTransformMatrix {
+    type Item = SimSimd;
+    fn next(&mut self) -> Option<Self::Item> {
+	// let simd_width = size_of::<SimSimd>();
+ 	let mut val = [0u8;8];
+	let mut offset = self.read_pointer;
+	for i in 0..8 {
+	    val[i] = self.array[offset];
+	    offset += 1;
+	    if offset == self.n * self.k {
+		offset = 1;
+	    }
+	}
+	self.read_pointer = offset;
+ 	Some(SimSimd{vec : val})
+    }
+}
+
+// No need to reimplement OutputMatrix
+
+// Won't implement the pseudo "multiply" stream
+
+pub fn simsimd_warm_multiply(xform  : &mut SimSimdTransformMatrix,
+			     input  : &mut SimSimdInputMatrix,
+			     output : &mut OutputMatrix) {
+
+    // using into_iter() below moves ownership, so pull out any data
+    // we need first
+    let c = input.c;
+    let n = xform.n;
+    let k = xform.k;
+
+    assert!(k > 0);
+    assert!(n > 0);
+    assert!(c > 0);
+    assert_eq!(input.k, k);
+    assert_eq!(output.c, c);
+    assert_eq!(output.n, n);
+
+    // searching for prime factors ... needs more work
+    assert_ne!(k, gcd(k,c));
+    
+    // set up iterators
+    let xiter = xform.into_iter();
+    let iiter = input.into_iter();
+    let field = guff::new_gf8(0x11b,0x1b);
+    
+    // algorithm not so trivial any more, but still quite simple
+    let mut dp_counter  = 0;
+    let mut partial_sum = 0u8;
+
+    // multiplying an n * k transform by a k * c input matrix:
+    //
+    // n * c dot products per matrix multiplication
+    //
+    // k multiplies per dot product
+    //
+    // Grand total of n * k * c multiplies:
+
+    let target = n * k * c;
+
+    // we don't have mstream any more since we handle it ourselves
+
+    // read ahead two products
+
+    let mut i0 : SimSimd;
+    let mut x0 : SimSimd;
+
+    x0 = xiter.next().unwrap();
+    i0 = iiter.next().unwrap();
+    let mut m0 : SimSimd = SimSimd::cross_product(x0,i0);
+
+    x0  = xiter.next().unwrap();
+    i0  = iiter.next().unwrap();
+    let mut m1  = SimSimd::cross_product(x0,i0);
+
+    let mut offset_mod_simd = 0;
+    let mut total_dps = 0;
+    
+    loop {
+	// actual SIMD code will get 8 or 16 values at a time, but for
+	// testing the algorithm, it's OK to go byte-by-byte
+
+	// at top of loop we should always have m0, m1 full
+
+	// apportion 
+	
+	let p = m.next();
+
+        let p = p.unwrap();
+        eprintln!("Product: {}", p);
+
+        // add product to sum
+        partial_sum ^= p;
+        dp_counter += 1;
+	
+        // dot-product wrap around
+        if dp_counter == k {
+            output.write_next(partial_sum);
+            partial_sum = 0u8;
+            dp_counter = 0;
+	    total_dps += 1;
+        }
+
+	if total_dps == target { break }
+
+    }
+}
+
 
 #[cfg(test)]
 
