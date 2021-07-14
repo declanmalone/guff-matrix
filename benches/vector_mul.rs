@@ -29,10 +29,11 @@ fn x86_gf8_vec(size : usize) {
     unsafe { vmul_p8_buffer(&mut rv[..], &av[..], &bv[..], 0x1b); }
 }
 
+// not sure if I can get accurate timings for this
 fn alloc_only(size : usize) {
-    let av = vec![0x53u8; size];
-    let bv = vec![0xcau8; size];
-    let mut rv = vec![0x00u8; size];
+    let _av = vec![0x53u8; size];
+    let _bv = vec![0xcau8; size];
+    let mut _rv = vec![0x00u8; size];
 }
     
 fn bench_alloc_only(c: &mut Criterion) {
