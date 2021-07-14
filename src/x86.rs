@@ -69,7 +69,7 @@ use std::arch::x86_64::*;
 //
 
 
-// multiply
+/// 16-way SIMD multiplication of elements in GF(2<sup>8</sup>) with poly 0x11b
 #[inline(always)]
 pub unsafe fn vmul_p8x16(mut a : __m128i, b : __m128i, poly : u8) -> __m128i {
 
@@ -113,6 +113,9 @@ pub unsafe fn vmul_p8x16(mut a : __m128i, b : __m128i, poly : u8) -> __m128i {
 // multiply over buffers
 //
 // Important to test: non-aligned reads/writes
+/// 16-way SIMD multiplication of buffers in GF(2<sup>8</sup>) with poly 0x11b
+///
+/// Buffers `av`, `bv` and `dest` must be a multiple of 16 in length
 #[inline(always)]
 pub unsafe fn vmul_p8_buffer(dest : &mut [u8], av : &[u8], bv : &[u8], poly : u8) {
 
@@ -124,12 +127,6 @@ pub unsafe fn vmul_p8_buffer(dest : &mut [u8], av : &[u8], bv : &[u8], poly : u8
 	panic!("Buffer length not a multiple of 16");
     }
     let mut times = bytes >> 4;
-    
-    // move some declares out of loop
-    let mut mask = _mm_set1_epi8(1);      // mask bit in b
-    let     zero = _mm_setzero_si128();
-    let     high = _mm_slli_epi32(mask,7);
-    let     poly = _mm_set1_epi8(poly as i8);
 
     // convert dest, av, bv to pointers
     let mut dest = dest.as_mut_ptr() as *mut std::arch::x86_64::__m128i;
@@ -138,11 +135,9 @@ pub unsafe fn vmul_p8_buffer(dest : &mut [u8], av : &[u8], bv : &[u8], poly : u8
 
     while times > 0 {
 	times -= 1;
-	let mut a : __m128i;
-	let mut b : __m128i;
-	let mut res  : __m128i;
-	let mut temp : __m128i;
-	let mut cond : __m128i;
+	let a : __m128i;
+	let b : __m128i;
+	let res  : __m128i;
 	
 	// read in a, b from memory
 	a = _mm_lddqu_si128(av); // _mm_load_si128(av); // must be aligned
@@ -150,37 +145,17 @@ pub unsafe fn vmul_p8_buffer(dest : &mut [u8], av : &[u8], bv : &[u8], poly : u8
 	av = av.offset(1);	// offset for i128 type, not bytes!
 	bv = bv.offset(1);
 
-	// reset mask
-	mask = _mm_set1_epi8(1);
-	
-	// if b & mask != 0 { result = a } else { result = 0 }
-	cond = _mm_cmpeq_epi8 ( _mm_and_si128(b, mask), mask);
-	res  = _mm_blendv_epi8( zero, a , cond);
-	// bit <<= 1
-	mask = _mm_slli_epi32(mask, 1);
-
-	// return res;
-
-	for _ in 1..8 {
-            // return res;
-
-            // if a & 128 != 0 { a = a<<1 ^ poly } else { a = a<<1 }
-            cond = _mm_cmpeq_epi8(_mm_and_si128(a, high), high);
-            a    = _mm_add_epi8(a,a);
-            temp = _mm_xor_si128(a , poly);
-            a    = _mm_blendv_epi8(a, temp, cond);
-            
-            // return a;
-
-            // if b & mask != 0 { result ^= a }
-            cond = _mm_cmpeq_epi8 ( _mm_and_si128(b, mask), mask);
-            res  = _mm_blendv_epi8( res, _mm_xor_si128(a, res), cond);
-            // bit <<= 1
-            mask = _mm_slli_epi32(mask, 1);
-            // return res;
-	}
+	// since the register-based multiply routine is inline, we
+	// should be able to just call it here for no performancs
+	// penalty. Except maybe for splatting poly each time?
 	// _mm_set...
-	*dest = res;
+
+	res =  vmul_p8x16(a, b, poly);
+
+	// unaligned version of store
+	_mm_storeu_si128(dest,res);
+
+	// *dest = res;// crashes if dest unaligned
 	//return;
 	dest = dest.offset(1);
     }
@@ -190,8 +165,8 @@ pub unsafe fn vmul_p8_buffer(dest : &mut [u8], av : &[u8], bv : &[u8], poly : u8
 
 
 
-// A function to help examine whether/how inlining is done.
-// Returns the cube of each element
+/// A function to help examine whether/how inlining is done.
+/// Returns the cube of each element
 pub unsafe fn vector_cube_p8x16(a : __m128i, poly : u8) -> __m128i {
 
     // make two calls to vmul_p8x16
@@ -318,7 +293,7 @@ mod tests {
 
     // crashes as expected if I use _mm_load_si128(av);
     #[test]
-    fn test_vmul_p8_buffer_unaligned() {
+    fn test_vmul_p8_buffer_unaligned_read() {
 	unsafe  {
 
 	    // can only use on struct, enum, fn or union ...
@@ -332,11 +307,34 @@ mod tests {
 	    
 	    // eprintln!("a     : {:?}", a );
 	    // eprintln!("b     : {:?}", b );
-	    // eprintln!("result: {:?}", result   );
-	    // eprintln!("expect: {:?}", c );
+	    // eprintln!("result: {:?}", d   );
+	    // eprintln!("expect: {:?}", i );
 	    // panic!();
 	    assert_eq!(format!("{:?}", d), format!("{:?}", i))
 	}
     }
-    
+
+    // crashes as expected if I use _mm_store_si128() or * to deref
+    #[test]
+    fn test_vmul_p8_buffer_unaligned_write() {
+	unsafe  {
+
+	    // can only use on struct, enum, fn or union ...
+	    // #[repr(align(16))]
+	    let a = [0x53u8; 160];
+	    let b = [0xcau8; 160];
+	    let mut d = [0u8; 161];
+	    let i = [0x01u8; 160]; // expect identity {53} x {ca}
+
+	    vmul_p8_buffer(&mut d[1..], &a[..], &b[..], 0x1b);
+	    
+	    // eprintln!("a     : {:?}", a );
+	    // eprintln!("b     : {:?}", b );
+	    // eprintln!("result: {:?}", d   );
+	    // eprintln!("expect: {:?}", i );
+	    // panic!();
+	    assert_eq!(format!("{:?}", &d[1..161]), format!("{:?}", &i[0..160]))
+	}
+    }
+
 }
