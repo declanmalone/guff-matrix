@@ -926,7 +926,103 @@ mod tests {
 			   vec[1], vec[4], vec [7], vec[10],
 			   vec[2], vec[5], vec [8], vec[11], ];
 	assert_eq!(output.array, transposed);
-
     }
 
+    // Either of the above routines should have visited each code
+    // pathway apart from those paths relating to k >= 8. This is due
+    // to the coprime property (all possible straddling scenarios are
+    // tested).
+
+    // To test the paths relating to k >= 8, just use bigger identity
+    // matrices.
+    #[test]
+    fn simd_identity_k8_multiply_colwise() {
+	let identity = [
+	    1,0,0,0 ,0,0,0,0,
+	    0,1,0,0 ,0,0,0,0,
+	    0,0,1,0 ,0,0,0,0,
+	    0,0,0,1 ,0,0,0,0,
+	    0,0,0,0 ,1,0,0,0,
+	    0,0,0,0 ,0,1,0,0,
+	    0,0,0,0 ,0,0,1,0,
+	    0,0,0,0 ,0,0,0,1,
+	];
+	let mut transform = SimSimdTransformMatrix::new(8,8);
+	transform.fill(&identity[..]);
+	// 7 is coprime to 8
+	let mut input = SimSimdInputMatrix::new(8,7);
+	let vec : Vec<u8> = (1u8..=56).collect();
+	input.fill(&vec[..]);
+	let mut output = OutputMatrix::new_colwise(8,7);
+
+	// works if output is stored in colwise format
+	simsimd_warm_multiply(&mut transform, &mut input, &mut output);
+	assert_eq!(output.array, vec);
+    }
+
+    #[test]
+    fn simd_identity_k9_multiply_colwise() {
+	let identity = [
+	    1,0,0, 0,0,0, 0,0,0,
+	    0,1,0, 0,0,0, 0,0,0,
+	    0,0,1, 0,0,0, 0,0,0,
+	    0,0,0, 1,0,0, 0,0,0,
+	    0,0,0, 0,1,0, 0,0,0,
+	    0,0,0, 0,0,1, 0,0,0,
+	    0,0,0, 0,0,0, 1,0,0,
+	    0,0,0, 0,0,0, 0,1,0,
+	    0,0,0, 0,0,0, 0,0,1,
+	];
+	let mut transform = SimSimdTransformMatrix::new(9,9);
+	transform.fill(&identity[..]);
+	// 17 is coprime to 9
+	let mut input = SimSimdInputMatrix::new(9,17);
+	let vec : Vec<u8> = (1u8..=9 * 17).collect();
+	input.fill(&vec[..]);
+	let mut output = OutputMatrix::new_colwise(9,17);
+
+	// works if output is stored in colwise format
+	simsimd_warm_multiply(&mut transform, &mut input, &mut output);
+	assert_eq!(output.array, vec);
+    }
+
+    // Also test "degenerate" cases where matrices are less than simd
+    // size. The real SIMD code might not be able to handle this
+    // properly. At least not without specially-written wrap-around
+    // matrix implementations.
+    #[test]
+    fn simd_identity_k1_multiply_colwise() {
+	let identity = [ 1, ];
+	let mut transform = SimSimdTransformMatrix::new(1,1);
+	transform.fill(&identity[..]);
+	// 2 is coprime to 1
+	let mut input = SimSimdInputMatrix::new(1,2);
+	let vec : Vec<u8> = (1u8..=2).collect();
+	input.fill(&vec[..]);
+	let mut output = OutputMatrix::new_colwise(1,2);
+
+	// works if output is stored in colwise format
+	simsimd_warm_multiply(&mut transform, &mut input, &mut output);
+	assert_eq!(output.array, vec);
+    }
+
+    #[test]
+    fn simd_identity_k2_multiply_colwise() {
+	let identity = [
+	    1,0,
+	    0,1,
+	];
+	let mut transform = SimSimdTransformMatrix::new(2,2);
+	transform.fill(&identity[..]);
+	// 7 is coprime to 2
+	let mut input = SimSimdInputMatrix::new(2,7);
+	let vec : Vec<u8> = (1u8..=14).collect();
+	input.fill(&vec[..]);
+	let mut output = OutputMatrix::new_colwise(2,7);
+
+	// works if output is stored in colwise format
+	simsimd_warm_multiply(&mut transform, &mut input, &mut output);
+	assert_eq!(output.array, vec);
+    }
+    
 }

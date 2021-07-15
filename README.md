@@ -32,7 +32,7 @@ The matrices are organised in memory as follows:
 * output is either
 
 In order to facilitate wrap-around at the end of the transform matrix,
-if `k * n` is not a multiple of the SIMD width, we 
+if `k * n` is not a multiple of the SIMD width, we ...?
 
 The input matrix also has an extra simd_width bytes copied from the
 start of the matrix. This is to deal with wrap-around for all
@@ -43,7 +43,6 @@ non-final reads. (?)
 I have previously implemented a version of this algorithm on a
 PlayStation 3. It is available
 [here](https://github.com/declanmalone/gnetraid/blob/master/PS3-IDA/08-fastmatrix/spu-matrix.c)
-
 
 
 ## SIMD Support
@@ -73,8 +72,10 @@ non-SIMD version that uses the same basic ideas, but using a more
 rusty style (infinite iterators). That's in `src/arch.rs` and can be
 enabled as a feature:
 
-    cargo test --features simulation
+    cargo test --features simulator --tests simulator
 
 I'll also use this to prove that the algorithm works as intended.
 
-- [x] Write and test simulation of (non-vectorised) algorithm
+- [x] Write and test simulation of non SIMD algorithm
+
+- [x] Write and test simulation of SIMD algorithm
