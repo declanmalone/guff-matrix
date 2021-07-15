@@ -497,12 +497,12 @@ impl Simd for SimSimd {
 	    // let next_n = n + off - 8;
 	    for i in off .. 8 { sum ^= m0.vec[i] }
 	    n -= 8 - off;	// can become zero
-	    for i in   0 .. n {  sum ^= m0.vec[i] }
+	    for i in   0 .. n {  sum ^= m1.vec[i] }
 	    // we don't change m1, but some routines might
 	    return (sum, m1)
 	} else {		// non-straddling, will return m0
 	    for i in off .. off + n { sum ^= m0.vec[i] }
-	    return (0, m0)
+	    return (sum, m0)
 	}
     }
 }
