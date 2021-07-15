@@ -482,11 +482,28 @@ impl Simd for SimSimd {
     type E = u8;
 
     fn cross_product(a : Self, b : Self) -> Self {
-	a // to-do: multiply
+	let mut prod = [0u8; 8];
+	let f = new_gf8(0x11b,0x1b);
+	for i in 0..8 {
+	    prod[i] = f.mul(a.vec[i], b.vec[i])
+	}
+	Self { vec : prod }
     }
     // to-do: summing products, updating registers
-    fn sum_across_n(m0 : Self, m1 : Self, n : usize, off : usize) -> (Self::E, Self) {
-	(0.into(), m1)
+    fn sum_across_n(m0 : Self, m1 : Self, mut n : usize, off : usize) -> (Self::E, Self) {
+	assert!(n <= 8);
+	let mut sum = 0u8;
+	if off + n >= 8 {	// straddle, will return m1
+	    // let next_n = n + off - 8;
+	    for i in off .. 8 { sum ^= m0.vec[i] }
+	    n -= 8 - off;	// can become zero
+	    for i in   0 .. n {  sum ^= m0.vec[i] }
+	    // we don't change m1, but some routines might
+	    return (sum, m1)
+	} else {		// non-straddling, will return m0
+	    for i in off .. off + n { sum ^= m0.vec[i] }
+	    return (0, m0)
+	}
     }
 }
 
@@ -550,6 +567,7 @@ impl SimSimdInputMatrix {
 
 impl Iterator for SimSimdInputMatrix {
     type Item = SimSimd;
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
 	// let simd_width = size_of::<SimSimd>();
  	let mut val = [0u8;8];
@@ -576,7 +594,18 @@ pub struct SimSimdTransformMatrix {
     read_pointer : usize,
 }
 
-impl SimSimdTransformMatrix {}
+// put back in "boilerplate"
+impl SimSimdTransformMatrix {
+    fn new(n : usize, k : usize) -> Self {
+	let array = vec![0; n * k];
+	let read_pointer = 0;
+	Self { n, k, array, read_pointer }
+    }
+    fn fill(&mut self, slice : &[u8]) -> &Self {
+	self.array.copy_from_slice(slice);
+	self
+    }
+}
 
 // implementation differences: (rowwise) layout and naming of
 // rows/cols.
@@ -585,6 +614,7 @@ impl SimSimdTransformMatrix {}
 // stored rowwise/colwise parameter)
 impl Iterator for SimSimdTransformMatrix {
     type Item = SimSimd;
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
 	// let simd_width = size_of::<SimSimd>();
  	let mut val = [0u8;8];
@@ -640,16 +670,6 @@ pub fn simsimd_warm_multiply(xform  : &mut SimSimdTransformMatrix,
     let mut dp_counter  = 0;
     let mut sum         = 0u8;
 
-    // multiplying an n * k transform by a k * c input matrix:
-    //
-    // n * c dot products per matrix multiplication
-    //
-    // k multiplies per dot product
-    //
-    // Grand total of n * k * c multiplies:
-
-    let target = n * k * c;
-
     // we don't have mstream any more since we handle it ourselves
 
     // read ahead two products
@@ -660,7 +680,7 @@ pub fn simsimd_warm_multiply(xform  : &mut SimSimdTransformMatrix,
     // Question: can rustc determine that None is never returned?
     x0 = xiter.next().unwrap();
     i0 = iiter.next().unwrap();
-    let mut m0 : SimSimd = SimSimd::cross_product(x0,i0);
+    let mut m0 = SimSimd::cross_product(x0,i0);
 
     x0  = xiter.next().unwrap();
     i0  = iiter.next().unwrap();
@@ -668,8 +688,10 @@ pub fn simsimd_warm_multiply(xform  : &mut SimSimdTransformMatrix,
 
     let mut offset_mod_simd = 0;
     let mut total_dps = 0;
+    let target = n * k * c;
     
-    loop {
+    while total_dps < target {
+
 	// actual SIMD code: will get 8 values at a time
 	
 	// at top of loop we should always have m0, m1 full
@@ -678,30 +700,31 @@ pub fn simsimd_warm_multiply(xform  : &mut SimSimdTransformMatrix,
 
 	// handle case where k >= simd_width
 	while dp_counter + 8 <= k {
-	    let (part, new_m1) = SimSimd::sum_across_n(m0,m1,8,offset_mod_simd);
+	    let (part, new_m) = SimSimd::sum_across_n(m0,m1,8,offset_mod_simd);
 	    sum ^= part;
-	    m0 = new_m1;
+	    m0 = new_m;
 	    x0  = xiter.next().unwrap();
 	    i0  = iiter.next().unwrap();
-	    m1  = SimSimd::cross_product(x0,i0);
+	    m1  = SimSimd::cross_product(x0,i0); // new m1
 	    dp_counter += 8;
 	    // offset_mod_simd unchanged
 	}
-	// above may have set dp_counter to k already. If not, ...
-	if dp_counter < k {
+	// above may have set dp_counter to k already.
+	if dp_counter < k {	       // If not, ...
 	    let want = k - dp_counter; // always strictly positive
 	    let (part, new_m) = SimSimd::sum_across_n(m0,m1,want,offset_mod_simd);
 	    sum ^= part;
-	    // consumed m0 and maybe some of m1 too
 	    if offset_mod_simd + want >= 8 {
-		m0 = new_m;	// nothing left in old m0
+		// consumed m0 and maybe some of m1 too
+		m0 = new_m;	// nothing left in old m0, so m0 <- m1
 		x0  = xiter.next().unwrap();
 		i0  = iiter.next().unwrap();
-		m1  = SimSimd::cross_product(x0,i0);
+		m1  = SimSimd::cross_product(x0,i0); // new m1
 	    } else {
 		// got what we needed from m0 but it still has some
 		// unused data left in it
-		m0 = new_m
+		m0 = new_m;
+		// no new m1
 	    }
 	    // offset calculation the same for both arms above
 	    offset_mod_simd += want;
@@ -713,9 +736,6 @@ pub fn simsimd_warm_multiply(xform  : &mut SimSimdTransformMatrix,
         sum = 0u8;
         dp_counter = 0;
 	total_dps += 1;
-
-	if total_dps == target { break }
-
     }
 }
 
@@ -827,4 +847,79 @@ mod tests {
 
 	assert_eq!(dest, [0,1,2,3,4,5,6,7,8,9,10,11]);
     }
+
+
+    // Rework above tests for simd version
+    // -----------------------------------
+
+    #[test]
+    fn make_simd_transform() {
+	let mut input = SimSimdTransformMatrix::new(4,3);
+	let vec : Vec<u8> = (0u8..12).collect();
+	input.fill(&vec[..]);
+
+	let mut elem = input.next(); // returns a full simd vector
+	assert_eq!(elem.unwrap().vec, [0u8,1,2,3,4,5,6,7]);
+
+	// wrapping around
+	elem = input.next();	// returns a full simd vector
+	assert_eq!(elem.unwrap().vec, [8u8,9,10,11,0,1,2,3]);
+    }
+
+    #[test]
+    fn make_simd_input() {
+	let mut input = SimSimdInputMatrix::new(4,3);
+	let vec : Vec<u8> = (0u8..12).collect();
+	input.fill(&vec[..]);
+
+	let mut elem = input.next(); // returns a full simd vector
+	assert_eq!(elem.unwrap().vec, [0u8,1,2,3,4,5,6,7]);
+
+	// wrapping around
+	elem = input.next();	// returns a full simd vector
+	assert_eq!(elem.unwrap().vec, [8u8,9,10,11,0,1,2,3]);
+    }
+
+    #[test]
+    fn simd_identity_multiply_colwise() {
+	let identity = [1,0,0, 0,1,0, 0,0,1];
+	let mut transform = SimSimdTransformMatrix::new(3,3);
+	transform.fill(&identity[..]);
+	// 4 is coprime to 3
+	let mut input = SimSimdInputMatrix::new(3,4);
+	let vec : Vec<u8> = (1u8..=12).collect();
+	input.fill(&vec[..]);
+	let mut output = OutputMatrix::new_colwise(3,4);
+
+	// works if output is stored in colwise format
+	simsimd_warm_multiply(&mut transform, &mut input, &mut output);
+	assert_eq!(output.array, vec);
+    }
+
+    #[test]
+    fn simd_identity_multiply_rowwise() {
+	let identity = [1,0,0, 0,1,0, 0,0,1];
+	let mut transform = SimSimdTransformMatrix::new(3,3);
+	transform.fill(&identity[..]);
+	// 4 is coprime to 3
+	let mut input = SimSimdInputMatrix::new(3,4);
+	let vec : Vec<u8> = (1u8..=12).collect();
+	input.fill(&vec[..]);
+	let mut output = OutputMatrix::new_rowwise(3,4);
+
+	simsimd_warm_multiply(&mut transform, &mut input, &mut output);
+
+	// works only if output is stored in colwise format:
+	// assert_eq!(output.array, vec);
+
+	// need to transpose matrix (actually original list)... do it
+	// by hand (actually, to be correct: interleave original)
+	let mut transposed = vec![0u8; 12];
+	let transposed = [ vec[0], vec[3], vec [6], vec[9],
+			   vec[1], vec[4], vec [7], vec[10],
+			   vec[2], vec[5], vec [8], vec[11], ];
+	assert_eq!(output.array, transposed);
+
+    }
+
 }
