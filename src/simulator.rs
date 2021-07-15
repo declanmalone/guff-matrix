@@ -658,8 +658,8 @@ pub fn simsimd_warm_multiply(xform  : &mut SimSimdTransformMatrix,
     assert_eq!(output.c, c);
     assert_eq!(output.n, n);
 
-    // searching for prime factors ... needs more work
-    assert_ne!(k, gcd(k,c));
+    // searching for prime factors ... needs more work?
+    if k != 1 { assert_ne!(k, gcd(k,c)) }
     
     // set up iterators
     let xiter = xform.into_iter();
