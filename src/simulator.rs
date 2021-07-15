@@ -395,7 +395,7 @@ pub fn warm_multiply(xform  : &mut TransformMatrix,
         if p == None { break }
 
         let p = p.unwrap();
-        eprintln!("Product: {}", p);
+        // eprintln!("Product: {}", p);
 
         // add product to sum
         partial_sum ^= p;
@@ -712,7 +712,13 @@ pub fn simsimd_warm_multiply(xform  : &mut SimSimdTransformMatrix,
 	// above may have set dp_counter to k already.
 	if dp_counter < k {	       // If not, ...
 	    let want = k - dp_counter; // always strictly positive
+	    
+	    eprintln!("Calling sum_across_n with m0 {:?}, m1 {:?}, n {}, offset {}",
+		      m0.vec, m1.vec, want, offset_mod_simd);
 	    let (part, new_m) = SimSimd::sum_across_n(m0,m1,want,offset_mod_simd);
+
+	    eprintln!("got sum {}, new m {:?}", part, new_m.vec);
+
 	    sum ^= part;
 	    if offset_mod_simd + want >= 8 {
 		// consumed m0 and maybe some of m1 too
@@ -732,6 +738,7 @@ pub fn simsimd_warm_multiply(xform  : &mut SimSimdTransformMatrix,
 	}
 
 	// sum now has a full dot product
+	eprintln!("Sum: {}", sum);
         output.write_next(sum);
         sum = 0u8;
         dp_counter = 0;
