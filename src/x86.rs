@@ -247,6 +247,7 @@ pub unsafe fn vector_cube_p8x16(a : __m128i, poly : u8) -> __m128i {
 
 use super::Simd;
 
+#[derive(Clone,Copy,Debug)]
 struct X86u8x16Long0x11b {
     vec : __m128i,
 }
@@ -300,8 +301,9 @@ impl Simd for X86u8x16Long0x11b {
 	}
     }
     // renaming variable lo: current, hi: future readahead
-    fn sum_across_n(lo : Self, hi : Self, n : usize, off : usize)
+    fn sum_across_n(lo : Self, hi : Self, mut n : usize, off : usize)
 		    -> (Self::E, Self) {
+	unsafe {
 	// now the fun(?) starts ... looking for intrinsics
 	// to implement this ...
 
@@ -385,6 +387,7 @@ impl Simd for X86u8x16Long0x11b {
 	    13 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 13) },
 	    14 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 14) },
 	    15 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 15) },
+	    _ => { c = hi.vec } 	// unreachable, but satisfy compiler
 	}
 
 	// That only gets rid of the first `off` bytes. We also then
@@ -432,7 +435,7 @@ impl Simd for X86u8x16Long0x11b {
 	if n == 2 {
 	    c = _mm_xor_si128(c, _mm_slli_si128(c, 1));
 	}
-        return (_mm_extract_epi8(c, 0), m);
+        return ((_mm_extract_epi8(c, 0) & 256) as u8, m);
 	
 	// OK: alignr doesn't work because the offset has to be a
 	// constant. Plan B.
@@ -452,7 +455,7 @@ impl Simd for X86u8x16Long0x11b {
 	// (0, m)
     }
 }
-
+}
 // We can have several different matrix implementations, each with
 // their own way of implementing read_next(). For example, we could
 // have variants such as:
