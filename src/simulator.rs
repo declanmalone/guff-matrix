@@ -489,8 +489,8 @@ impl Simd for SimSimd {
 	}
 	Self { vec : prod }
     }
-    // to-do: summing products, updating registers
-    fn sum_across_n(m0 : Self, m1 : Self, mut n : usize, off : usize) -> (Self::E, Self) {
+    // 
+    unsafe fn sum_across_n(m0 : Self, m1 : Self, mut n : usize, off : usize) -> (Self::E, Self) {
 	assert!(n <= 8);
 	let mut sum = 0u8;
 	if off + n >= 8 {	// straddle, will return m1

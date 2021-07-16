@@ -655,7 +655,7 @@ pub trait Simd {
     type V;			// vector type, eg [u8; 8]
 
     fn cross_product(a : Self, b : Self) -> Self;
-    fn sum_across_n(m0 : Self, m1 : Self, n : usize, off : usize) -> (Self::E, Self);
+    unsafe fn sum_across_n(m0 : Self, m1 : Self, n : usize, off : usize) -> (Self::E, Self);
 }
 
 // For Matrix trait, I'm not going to distinguish between rowwise and
