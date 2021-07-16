@@ -420,52 +420,50 @@ impl Simd for X86u8x16Long0x11b {
 	    // the high byte, perhaps?
 	    //
 	    
-	    if n == 16 {
-		n >>= 1
-	    } else {
-		match n {
-		    15 => { c = _mm_srli_si128(_mm_slli_si128(c, 1), 1) },
-		    14 => { c = _mm_srli_si128(_mm_slli_si128(c, 2), 2) },
-		    13 => { c = _mm_srli_si128(_mm_slli_si128(c, 3), 3) },
-		    12 => { c = _mm_srli_si128(_mm_slli_si128(c, 4), 4) },
-		    11 => { c = _mm_srli_si128(_mm_slli_si128(c, 5), 5) },
-		    10 => { c = _mm_srli_si128(_mm_slli_si128(c, 6), 6) },
-		    9  => { c = _mm_srli_si128(_mm_slli_si128(c, 7), 7) },
-		    _  => { c = _mm_srli_si128(_mm_slli_si128(c, 8), 8) },
-		}
-		n &= 15
+	    match n {
+		16 => {},
+		15 => { c = _mm_srli_si128(_mm_slli_si128(c, 1), 1) },
+		14 => { c = _mm_srli_si128(_mm_slli_si128(c, 2), 2) },
+		13 => { c = _mm_srli_si128(_mm_slli_si128(c, 3), 3) },
+		12 => { c = _mm_srli_si128(_mm_slli_si128(c, 4), 4) },
+		11 => { c = _mm_srli_si128(_mm_slli_si128(c, 5), 5) },
+		10 => { c = _mm_srli_si128(_mm_slli_si128(c, 6), 6) },
+		9  => { c = _mm_srli_si128(_mm_slli_si128(c, 7), 7) },
+		_  => { c = _mm_srli_si128(_mm_slli_si128(c, 8), 8) },
 	    }
+	    if n > 8 { n = 8 }
 	    c = _mm_xor_si128(c, _mm_srli_si128(c, 8));
 	    eprintln!("c after first xor: {:x?}", c);
-	    if n == 8 {
-		n >>= 1
-	    } else {
-		match n {
-		    7 => { c = _mm_srli_si128(_mm_slli_si128(c, 9), 9) },
-		    6 => { c = _mm_srli_si128(_mm_slli_si128(c, 10), 10) },
-		    5 => { c = _mm_srli_si128(_mm_slli_si128(c, 11), 11) },
-		    _ => { c = _mm_srli_si128(_mm_slli_si128(c, 12), 12) },
-		}
-		n &= 7
+
+	    eprintln!("n is now {}", n);
+	    match n {
+		8 => { },
+		7 => { c = _mm_srli_si128(_mm_slli_si128(c, 9), 9) },
+		6 => { c = _mm_srli_si128(_mm_slli_si128(c, 10), 10) },
+		5 => { c = _mm_srli_si128(_mm_slli_si128(c, 11), 11) },
+		_ => { c = _mm_srli_si128(_mm_slli_si128(c, 12), 12) },
 	    }
+	    if n > 4 { n = 4 }
 	    c = _mm_xor_si128(c, _mm_srli_si128(c, 4));
 	    eprintln!("c after second xor: {:x?}", c);
-	    if n == 4 {
-		n >>= 1
-	    } else {
-		match n {
-		    3 => { c = _mm_slli_si128(_mm_srli_si128(c, 13), 13) },
-		    _ => { c = _mm_slli_si128(_mm_srli_si128(c, 14), 14) },
+
+	    eprintln!("n is now {}", n);
+	    match n {
+		4 => { },
+		3 => { c = _mm_srli_si128(_mm_slli_si128(c, 13), 13) },
+		_ => { c = _mm_srli_si128(_mm_slli_si128(c, 14), 14) },
 		}
-		n &= 3
-	    }
+	    if n > 2 { n = 2 }
 	    c = _mm_xor_si128(c, _mm_srli_si128(c, 2));
 	    eprintln!("c after third xor: {:x?}", c);
-	    if n == 2 {
-		eprintln!("n is now 2");
-		c = _mm_xor_si128(c, _mm_srli_si128(c, 1));
-		eprintln!("c after fourth xor: {:x?}", c);
+
+	    eprintln!("n is now {}", n);
+	    match n {
+		2 => { },
+		_ => { c = _mm_slli_si128(_mm_srli_si128(c, 15), 15) },
 	    }
+	    c = _mm_xor_si128(c, _mm_srli_si128(c, 1));
+	    eprintln!("c after fourth xor: {:x?}", c);
 	    let extracted : u8 = (_mm_extract_epi8(c, 0) & 255) as u8;
 	    eprintln!("Extracting low byte: {:x}", extracted);
             return (extracted, m);
@@ -620,15 +618,56 @@ mod tests {
 	    let mut lo = X86u8x16Long0x11b { vec : lo };
 	    let mut hi = X86u8x16Long0x11b { vec : hi };
 
+	    // simplest case 
 	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 16, 0);
 	    let expect : u8 = 0b0111_1111 ^ 0b1011_1111;
 	    eprintln!("expect {:x}", expect);
 	    assert_eq!(sum, expect);
 
-
+	    // n = power of two 
 	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 8, 0);
 	    assert_eq!(sum, 0b0111_1111);
 
+	    // simplest case, with offset 1
+	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 16, 1);
+	    let expect : u8 = 0b1111_1111 ^ 0b0011_1110;
+	    eprintln!("expect {:x}", expect);
+	    assert_eq!(sum, expect);
+
+	    // off = 0, n = 1
+	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 1, 0);
+	    assert_eq!(sum, 0b0000_0000);
+	    
+	    // off = 0, n = 2
+	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 2, 0);
+	    assert_eq!(sum, 0b0000_0001);
+
+	    // off = 0, n = 3
+	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 3, 0);
+	    assert_eq!(sum, 0b0000_0011);
+
+	    // off = 0, n = 4
+	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 4, 0);
+	    assert_eq!(sum, 0b0000_0111);
+
+	    // off = 0, n = 5
+	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 5, 0);
+	    assert_eq!(sum, 0b0000_1111);
+
+	    // off = 0, n = 6
+	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 6, 0);
+	    assert_eq!(sum, 0b0001_1111);
+
+	    // off = 0, n = 7
+	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 7, 0);
+	    assert_eq!(sum, 0b0011_1111);
+
+	    // off = 0, n = 15
+	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 15, 0);
+	    let expect : u8 = 0b0111_1111 ^ 0b1001_1111;
+	    eprintln!("expect {:x}", expect);
+	    assert_eq!(sum, expect);
+	    
 	}
     }
 
