@@ -239,6 +239,230 @@ pub unsafe fn vector_cube_p8x16(a : __m128i, poly : u8) -> __m128i {
 // possibly more efficient) explicit masks and shuffles.
 
 
+// Implement Simd-compliant structures.
+//
+// We will have only have a single Simd implementation here because we
+// only have a single simd multiplication (cross product) routine.
+//
+
+use super::Simd;
+
+struct X86u8x16Long0x11b {
+    vec : __m128i,
+}
+
+// Add extra things here to help test intrinsics
+//impl X86u8x16Long0x11b {
+
+  //  fn 
+//}
+
+unsafe fn test_alignr() {
+
+    // stored in memory with lowest value first
+    let av = [ 0u8, 1,  2,  3,  4,  5,  6,  7,
+	        8, 9, 10, 11, 12, 13, 14, 15 ];
+    let bv = [ 16u8, 17, 18, 19, 20, 21, 22, 23,
+	       24, 25, 26, 27, 28, 29, 30, 31];
+    
+    let mut lo = _mm_lddqu_si128(av.as_ptr() as *const std::arch::x86_64::__m128i);
+    let mut hi = _mm_lddqu_si128(bv.as_ptr() as *const std::arch::x86_64::__m128i);
+
+    let c = _mm_alignr_epi8 (hi, lo, 31);
+
+    panic!("got c = {:?}", c);
+
+    // result of c = __m128i(31, 0) means that the low byte of memory
+    // gets loaded into the low byte of the register. That means that
+    // I'll have to pull off bits from the low end of a register or
+    // register pair (and flip the order in a pair, too). I've
+    // corrected that above.
+
+    // In general:
+    //
+    // Use shr to skip lower (previously seen) memory addrs
+    // Use shl to mask out later addrs that we don't want yet
+    //
+    // (mnemonic: the future is to the right, the past to the left)
+}
+
+// Use fixed polynomial. Even though our mul routine above can take
+// one as a parameter, my Arm vmull/vtbl implementation needs to use a
+// pre-generated lookup table. So for now, stick with a fixed poly.
+impl Simd for X86u8x16Long0x11b {
+
+    type E = u8;
+    type V = __m128i;
+    
+    fn cross_product(a : Self, b : Self) -> Self {
+	unsafe {
+	    Self { vec : vmul_p8x16(a.vec, b.vec, 0x1b) }
+	}
+    }
+    // renaming variable lo: current, hi: future readahead
+    fn sum_across_n(lo : Self, hi : Self, n : usize, off : usize)
+		    -> (Self::E, Self) {
+	// now the fun(?) starts ... looking for intrinsics
+	// to implement this ...
+
+	// __m128i _mm_alignr_epi8 (__m128i a, __m128i b, int imm8)
+	// sticks a, b together (a high), then shifts right by imm8
+	//
+	// This will work fine if the leftmost bytes have already been
+	// zeroed.
+	//
+	// What is the mapping of memory addresses to high, low bytes
+	// of __m128i, though? Will we have to reverse the direction
+	// of shifts? Intel is little-endian
+	//
+	// Right. See test_alignr above. The order is the reverse to
+	// what I had expected. I can still use it combined with:
+	//
+	// __m128i _mm_slli_si128 (__m128i a, int imm8)
+	// (left shift imm8 bytes)
+	//
+
+	// if we straddle, will return m1 (hi), otherwise m0 (lo)
+	let m = if off + n >= 16 { hi } else { lo };
+
+	// Abandoning the code below 'OK: alignr...'. It seems that
+	// Intel don't provide full vector rotates except for constant
+	// values. I'm going to have to use shuffle masks...
+
+	// Looking at the Arm intrinsics, it doesn't have it either. I
+	// guess that the circuitry required for doing arbitrary
+	// rotates on wide registers is too costly.
+
+	// So, I guess that both architectures do something like
+	// Altivec does...
+	//
+	// pshufb on Intel seems to work by:
+	//
+	// __m128i _mm_shuffle_epi8 (__m128i a, __m128i b)
+	//
+	// IF high bit of mask b is set, zero corresponding output
+	// element
+	// ELSE
+	// use lower 4 bits of b to select a byte from a
+	//
+	// My Altivec/PS3 code actually uses different scheme ... it
+	// uses shuffles to advance past already-consumed data (as
+	// above), but then uses maskb to set a number of bits from
+	// the start. (converting a 16-bit value into a 16-byte
+	// vector).	
+
+	// There's probably something similar for Intel?
+	// 
+
+	// This has turned out to be more complex than I thought. I
+	// might have to rethink the matrix multiply code. The point
+	// at which control passes here might have to be at a lower
+	// level, meaning that we do less work in the matrix code and
+	// more here.
+
+	// Actually, my sum across products is also in doubt. Ah, no,
+	// it's fine. We can still shift by a constant amount.
+
+	// That gives me an idea... the following can be converted
+	// into binary searches. Hopefully, though, it compiles down
+	// to a computed goto (preferably adding a constant multiple
+	// to pc)
+	let mut c;
+	match off {
+	    0 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 0) },
+	    1 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 1) },
+	    2 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 2) },
+	    3 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 3) },
+	    4 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 4) },
+	    5 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 5) },
+	    6 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 6) },
+	    7 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 7) },
+	    8 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 8) },
+	    9 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 9) },
+	    10 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 10) },
+	    11 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 11) },
+	    12 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 12) },
+	    13 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 13) },
+	    14 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 14) },
+	    15 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 15) },
+	}
+
+	// That only gets rid of the first `off` bytes. We also then
+	// have to select the next n bytes to sum together.
+
+	// if this looks crazy, it's because it is
+	if n == 16 {
+	    n >>= 1
+	} else {
+	    match n {
+		15 => { c = _mm_slli_si128(_mm_srli_si128(c, 1), 1) },
+		14 => { c = _mm_slli_si128(_mm_srli_si128(c, 2), 2) },
+		13 => { c = _mm_slli_si128(_mm_srli_si128(c, 3), 3) },
+		12 => { c = _mm_slli_si128(_mm_srli_si128(c, 4), 4) },
+		11 => { c = _mm_slli_si128(_mm_srli_si128(c, 5), 5) },
+		10 => { c = _mm_slli_si128(_mm_srli_si128(c, 6), 6) },
+		 9 => { c = _mm_slli_si128(_mm_srli_si128(c, 7), 7) },
+		_ => {}
+	    }
+	    n &= 7
+	}
+	c = _mm_xor_si128(c, _mm_slli_si128(c, 8));
+	if n == 8 {
+	    n >>= 1
+	} else {
+	    match n {
+		7 => { c = _mm_slli_si128(_mm_srli_si128(c, 9), 9) },
+		6 => { c = _mm_slli_si128(_mm_srli_si128(c, 10), 10) },
+		5 => { c = _mm_slli_si128(_mm_srli_si128(c, 11), 11) },
+		_ => {}
+	    }
+	    n &= 3
+	}
+	c = _mm_xor_si128(c, _mm_slli_si128(c, 4));
+	if n == 4 {
+	    n >>= 1
+	} else {
+	    match n {
+		3 => { c = _mm_slli_si128(_mm_srli_si128(c, 13), 13) },
+		_ => {}
+	    }
+	    n &= 1
+	}
+	c = _mm_xor_si128(c, _mm_slli_si128(c, 2));
+	if n == 2 {
+	    c = _mm_xor_si128(c, _mm_slli_si128(c, 1));
+	}
+        return (_mm_extract_epi8(c, 0), m);
+	
+	// OK: alignr doesn't work because the offset has to be a
+	// constant. Plan B.
+
+	// extract from off ... off + n
+	// let mut c = _mm_alignr_epi8 (hi.vec, lo.vec, 0);
+
+	// OMG: slli also has to use a const
+	// let lshift = 16 - n;
+	// c = _mm_slli_si128(c, lshift);
+
+	// sum across using xor and shift/rotate
+	//
+	// 16 bytes, so 4 steps
+	// c ^= _mm_slli_si128(c, 8);
+	
+	// (0, m)
+    }
+}
+
+// We can have several different matrix implementations, each with
+// their own way of implementing read_next(). For example, we could
+// have variants such as:
+//
+// * caching complete matrix in a small number of registers
+// * 
+
+
+
+
 #[cfg(test)]
 mod tests {
 
@@ -337,4 +561,8 @@ mod tests {
 	}
     }
 
+    #[test]
+    fn test_alignr_shr() {
+	unsafe { test_alignr() };
+    }
 }

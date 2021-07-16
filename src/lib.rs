@@ -646,6 +646,67 @@ pub fn warm_simd_multiply<E,S>(xform : &impl WarmSimdMatrix<E,S>,
 // restart at a different row.
 //
 
+// SIMD support, based on `simulator` module
+
+// This trait will be in main module and will have to be implemented
+// for each architecture
+pub trait Simd {
+    type E;			// elemental type, eg u8
+    type V;			// vector type, eg [u8; 8]
+
+    fn cross_product(a : Self, b : Self) -> Self;
+    fn sum_across_n(m0 : Self, m1 : Self, n : usize, off : usize) -> (Self::E, Self);
+}
+
+// For Matrix trait, I'm not going to distinguish between rowwise and
+// colwise variants. The iterators will just treat the data as a
+// contiguous block of memory. It's only when it comes to argument
+// checking (to matrix multiply) and slower get/set methods that the
+// layout matters.
+//
+// Having only one trait also cuts down on duplicated definitions.
+
+// Make it generic on S : Simd, because the iterator returns values of
+// that type.
+pub trait SimdMatrix<S : Simd> {
+    // const IS_ROWWISE : bool;
+    // fn is_rowwise(&self) -> bool { Self::IS_ROWWISE }
+
+    // size (in bits) of simd vector 
+    const SIMD_SIZE : usize;
+
+    // required methods
+    fn is_rowwise(&self) -> bool;
+    fn rows(&self) -> usize;
+    fn cols(&self) -> usize;
+    fn read_next(&self) -> S;
+    fn write_next(&mut self, val : S::E);
+
+    // not required by multiply. Maybe move to a separate accessors
+    // trait. Comment out for now.
+    // fn get(&self, r : usize, c : usize) -> S::E;
+    // fn set(&self, r : usize, c : usize, elem : S::E);
+
+    // Convenience stuff
+    fn rowcol_to_index(&self, r : usize, c : usize) -> usize {
+	if self.is_rowwise() {
+	    r * self.rows() + c
+	} else {
+	    r + c * self.cols()
+	}
+    }
+}
+
+
+pub fn simd_warm_multiply<S : Simd>(
+    xform  : &impl SimdMatrix<S>,
+    input  : &impl SimdMatrix<S>,
+    output : &impl SimdMatrix<S>) {
+
+    
+}
+
+
 #[cfg(test)]
 mod tests {
 

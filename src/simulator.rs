@@ -713,11 +713,11 @@ pub fn simsimd_warm_multiply(xform  : &mut SimSimdTransformMatrix,
 	if dp_counter < k {	       // If not, ...
 	    let want = k - dp_counter; // always strictly positive
 	    
-	    eprintln!("Calling sum_across_n with m0 {:?}, m1 {:?}, n {}, offset {}",
+	    // eprintln!("Calling sum_across_n with m0 {:?}, m1 {:?}, n {}, offset {}",
 		      m0.vec, m1.vec, want, offset_mod_simd);
 	    let (part, new_m) = SimSimd::sum_across_n(m0,m1,want,offset_mod_simd);
 
-	    eprintln!("got sum {}, new m {:?}", part, new_m.vec);
+	    // eprintln!("got sum {}, new m {:?}", part, new_m.vec);
 
 	    sum ^= part;
 	    if offset_mod_simd + want >= 8 {
@@ -746,6 +746,68 @@ pub fn simsimd_warm_multiply(xform  : &mut SimSimdTransformMatrix,
     }
 }
 
+// Epilogue
+//
+// Writing the above two simulations has been very useful to me as a
+// way of:
+//
+// * proving the logic correct (gcd property and simd product
+//   apportionment)
+// * implementing abstract concept of infinite tapes
+// * figuring out a good division of labour and how to organise that
+//   in terms of rust types
+//
+// From here, I should be able to quite easily implement real SIMD
+// matrix multiplication based on the second simulation/prototype
+// above.
+//
+// Observations
+//
+// Traits are very useful, but I think that I tend to overuse them
+// when thinking about how to design something. In a couple of places,
+// a more functional style would have been appropriate.
+//
+// Newtypes are very useful, and without them, it would be pretty
+// difficult to make Simd types generic across platforms.
+//
+// Iterators are also a very useful feature, but I notice that in my
+// code above, the compiler can't eliminate the check for a panic when
+// calling unwrap(). This is despite my iterator code never returning
+// None. Since I don't need any of the other features of the Iterator
+// trait, I won't be using it in my "real" code.
+//
+// I think that I've learned a lot more about Rust thanks to this
+// exercise. It's also helped me clarify some points about my original
+// PS3 implementation and improve the overall design. The new Rust
+// code looks a lot nicer, I think, and it shouldn't be much less
+// efficient.
+//
+// "Real" SIMD
+//
+// I'll continue to use an Elem associated type for the wrapped SIMD
+// vector types. I'll want to make the multiplication routine generic
+// across all support SIMD architectures, including the simulated/fake
+// one above.
+//
+// There will be a bit of extra boilerplate to let the compiler know
+// that Elem is something that has xor defined for it, and that it can
+// be zeroed.
+//
+// I'd like to have non-destructive type conversion, eg between
+// Poly8x8_t (a wrapped type) and [u8;8].
+//
+// I'm sticking with u8 fields for the moment, but I should be able to
+// implement larger fields without too much difficulty. An extra bit
+// of work will be needed to deal with endian conversion there if
+// input data is coming from an external source.
+//
+// Don't use Iterator trait.
+//
+// Do implement interleaver for each arch, but have default software
+// (non-SIMD) implementation. Do this as a separate step when loading
+// data into matrix.
+//
+// 
 
 #[cfg(test)]
 
