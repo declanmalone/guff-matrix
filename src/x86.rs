@@ -934,5 +934,93 @@ mod tests {
 	}
     }
 
-    
+    #[test]
+    fn test_matrix_internal_read() { // 3 non-wrapping + 2 wrapping
+
+	// case where matrix size is a multiple of simd size
+	let mut mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(16, 3, true);
+
+	// use constant shuffle table which has 16 * 3 elements
+	mat.fill(&SHUFFLE_MASK[..]);
+
+	unsafe {
+
+	    // load up each 16-byte "row" of SHUFFLE_MASK
+	    // one row of 0xff, one row of incrementing values, then another 0xff
+	    
+	    let array_ptr = SHUFFLE_MASK.as_ptr();
+	    let ff1_addr = array_ptr.offset( 0) as *const std::arch::x86_64::__m128i;
+	    let inc_addr = array_ptr.offset(16) as *const std::arch::x86_64::__m128i;
+	    let ff2_addr = array_ptr.offset(32) as *const std::arch::x86_64::__m128i;
+	    
+	    let ff1 =  _mm_lddqu_si128(ff1_addr);
+	    let inc =  _mm_lddqu_si128(inc_addr);
+	    let ff2 =  _mm_lddqu_si128(ff2_addr);
+
+	    // just to be sure that the above is correct:
+	    assert_eq!(format!("{:?}",ff1), format!("{:?}",ff2));
+
+	    // 1st
+	    let first_read = mat.read_next();
+	    assert_eq!(format!("{:?}",ff1), format!("{:?}",first_read.vec));
+
+	    // 2nd
+	    let second_read = mat.read_next();
+	    assert_eq!(format!("{:?}",inc), format!("{:?}",second_read.vec));
+
+	    // 3rd
+	    let third_read = mat.read_next();
+	    assert_eq!(format!("{:?}",ff1), format!("{:?}",third_read.vec));
+
+	    // 4th
+	    let fourth_read = mat.read_next();
+	    assert_eq!(format!("{:?}",ff1), format!("{:?}",fourth_read.vec));
+
+	    // 5th
+	    let fifth_read = mat.read_next();
+	    assert_eq!(format!("{:?}",inc), format!("{:?}",fifth_read.vec));
+	}
+    }
+
+    #[test]
+    fn test_matrix_changing_read_offset() {
+
+	// case where matrix size is not a multiple of simd size
+
+	// A 7x3 matrix would generate all possible offsets since
+	// gcd(21,16) = 1
+
+	// 2x matrix storage so we can easily generate overlapping
+	// reads using a modular index
+	let stream = [0u8,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,
+		      0u8,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20];
+	
+	let mut mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(7, 3, true);
+
+	mat.fill(&stream[0..21]);
+
+	let array_ptr = stream.as_ptr();
+	let mut index = 0;
+
+	unsafe {
+
+	    // do this in a loop that tests all pathways in code (lcm(21,16))
+
+	    for _ in 0..21*16 {
+	    
+		// load up expected value
+		let addr = array_ptr.offset(index) as *const std::arch::x86_64::__m128i;
+		let expect =  _mm_lddqu_si128(addr);
+
+		index += 16;
+		if index >= 21 { index -= 21 }
+
+		let mat_read = mat.read_next();
+
+		assert_eq!(format!("{:?}",mat_read.vec), format!("{:?}",expect));
+	    }
+	}
+    }
+
+
 }
