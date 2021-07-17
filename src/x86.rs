@@ -141,7 +141,7 @@ pub unsafe fn vmul_p8_buffer(dest : &mut [u8], av : &[u8], bv : &[u8], poly : u8
 	
 	// read in a, b from memory
 	a = _mm_lddqu_si128(av); // _mm_load_si128(av); // must be aligned
-	b = _mm_lddqu_si128(bv); // *bv also crashes
+	b = _mm_lddqu_si128(bv); // b = *bv also crashes
 	av = av.offset(1);	// offset for i128 type, not bytes!
 	bv = bv.offset(1);
 
@@ -511,21 +511,78 @@ impl Simd for X86u8x16Long0x11b {
 pub struct X86SimpleMatrix<S : Simd> {
 
     // to implement read_next
-    reg    : S,			// only need a single register
+    reg    : S,			// single read-ahead register
     rp     : usize,		// read pointer (index) in array
     offset : usize,		// offset to shift register by
 
     // to implement write_next
     or : usize,
     oc : usize,
-    
+
+    // to implement regular matrix stuff
     rows : usize,
     cols : usize,
     array : Vec<u8>,
     is_rowwise : bool,
 }
 
+impl X86SimpleMatrix<X86u8x16Long0x11b> {
+
+    fn new(rows : usize, cols : usize, is_rowwise : bool) -> Self {
+	if (rows * cols < 16) {
+	    panic!("This SIMD matrix implementation can't handle rows * cols < 16 bytes");
+	}
+
+	let or = 0;
+	let oc = 0;
+	let offset = 0;
+	let rp = 0;
+
+	// add an extra 15 guard bytes to deal with reading past end
+	// of matrix
+	let array = vec![0u8; rows * cols + 15];
+
+	// set up a dummy value for reg; set it up properly after fill()
+	let reg;
+	unsafe {
+	    reg = X86u8x16Long0x11b { vec :_mm_setzero_si128() };
+	}
+
+	X86SimpleMatrix::<X86u8x16Long0x11b> {
+	    rows, cols, is_rowwise, array,
+	    reg, rp, offset, or, oc
+	}
+    }
+
+    fn fill(&mut self, data : &[u8]) {
+	let size = self.size();
+	if data.len() != size {
+	    panic!("Supplied data != matrix size");
+	}
+	self.array[0..size].copy_from_slice(data);
+
+	unsafe {
+	    // Set up read-ahead register based on new data
+	    let array_ptr = self.array.as_ptr() as *const std::arch::x86_64::__m128i;
+
+	    // risk an aligned load (use repr align on struct if it fails)
+	    self.reg = X86u8x16Long0x11b{vec : _mm_load_si128(array_ptr)};
+	}
+    }
+
+    // convenience
+    fn new_with_data(rows : usize, cols : usize, is_rowwise : bool,
+		     data : &[u8]) -> Self {
+	let mut this = Self::new(rows, cols, is_rowwise);
+	this.fill(data);
+	this
+    }
+
+}
+
 // table for pshufb (_mm_shuffle_epi8())
+// Entries with high bit set => 0
+// Other entries => select byte at that index
 const SHUFFLE_MASK : [u8; 48] = [
     255u8, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
         0,   1,   2,   3,   4,   5,   6,   7,   8,   9,  10,  11,  12,  13,  14,  15,
@@ -548,7 +605,6 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	let reg1 : __m128i;
 	let ret  : __m128i;
 	let array_size = self.rows * self.cols;
-	assert!(array_size >= 16); // todo: move check to constructor
 
 	// offset only potentially changes at end of matrix
 	let old_offset = self.offset;
@@ -592,7 +648,9 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	    
 	X86u8x16Long0x11b{vec : ret}
     }
-    fn write_next(&mut self, _e : u8) { }
+    fn write_next(&mut self, _e : u8) {
+	unimplemented!()
+    }
 }
 
 
@@ -770,4 +828,7 @@ mod tests {
 	}
     }
 
+
+    
+    
 }

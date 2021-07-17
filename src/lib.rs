@@ -695,6 +695,7 @@ pub trait SimdMatrix<S : Simd> {
 	    r + c * self.cols()
 	}
     }
+    fn size(&self) -> usize { self.rows() * self.cols() }
 }
 
 
