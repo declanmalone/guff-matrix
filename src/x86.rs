@@ -529,7 +529,7 @@ pub struct X86SimpleMatrix<S : Simd> {
 impl X86SimpleMatrix<X86u8x16Long0x11b> {
 
     fn new(rows : usize, cols : usize, is_rowwise : bool) -> Self {
-	if (rows * cols < 16) {
+	if rows * cols < 16 {
 	    panic!("This SIMD matrix implementation can't handle rows * cols < 16 bytes");
 	}
 
@@ -568,6 +568,8 @@ impl X86SimpleMatrix<X86u8x16Long0x11b> {
 	    // risk an aligned load (use repr align on struct if it fails)
 	    self.reg = X86u8x16Long0x11b{vec : _mm_load_si128(array_ptr)};
 	}
+	// read-ahead pointer = simd width, since we have read one full register
+	self.rp = 16;
     }
 
     // convenience
@@ -828,7 +830,103 @@ mod tests {
 	}
     }
 
-
     
+    // test constructor basics first, then iterator
+    #[test]
+    #[should_panic]
+    fn test_matrix_too_small() {
+	let mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(3, 5, true);
+    }
+
+    #[test]
+    fn test_matrix_goldilocks() {
+	let mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(2, 8, true);
+	let mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(8, 2, true);
+	let mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(16, 1, true);
+	let mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(4, 4, true);
+    }
+
+    #[test]
+    fn test_matrix_read_pre_fill() {
+	let mut mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(4, 4, true);
+	unsafe {
+        let zero : __m128i = _mm_set_epi32( 0, 0, 0, 0 );
+	    let first_read = mat.read_next();
+	    assert_eq!(format!("{:?}",zero), format!("{:?}",first_read.vec))
+	}
+    }
+
+    #[test]
+    fn test_matrix_read_post_fill() {
+
+	let mut mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(4, 4, true);
+
+	let identity = [ 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 ];
+	mat.fill(&identity[..]);
+
+	unsafe {
+
+	    // first operand = lowest 32 bits
+            let one : __m128i = _mm_set_epi32(
+		0x01000000,	// why big endian, though?
+		0x00010000,
+		0x00000100,
+		0x00000001
+	    );
+
+	    // just to be sure that the above is correct:
+	    let array_ptr = identity.as_ptr() as *const std::arch::x86_64::__m128i;
+	    let id_reg = _mm_lddqu_si128(array_ptr);
+	    assert_eq!(format!("{:?}",one), format!("{:?}",id_reg));
+
+	    // now test read_next()
+	    let first_read = mat.read_next();
+	    assert_eq!(format!("{:?}",one), format!("{:?}",first_read.vec));
+
+	    // That big-end ordering for u32 load is puzzling, so make
+	    // sure that when we write register back to memory it's in
+	    // correct order
+
+	    let mut scratch = [0u8; 16];
+	    let scratch_ptr = scratch.as_mut_ptr() as *mut std::arch::x86_64::__m128i;
+
+	    _mm_storeu_si128(scratch_ptr,first_read.vec);
+	    assert_eq!(scratch, identity);
+	}
+    }
+
+    #[test]
+    fn test_matrix_easy_wraparound() {
+
+	let mut mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(4, 4, true);
+
+	let identity = [ 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 ];
+	mat.fill(&identity[..]);
+
+	unsafe {
+
+	    // first operand = lowest 32 bits
+            let one : __m128i = _mm_set_epi32(
+		0x01000000,	// why big endian, though?
+		0x00010000,
+		0x00000100,
+		0x00000001
+	    );
+
+	    // just to be sure that the above is correct:
+	    let array_ptr = identity.as_ptr() as *const std::arch::x86_64::__m128i;
+	    let id_reg = _mm_lddqu_si128(array_ptr);
+	    assert_eq!(format!("{:?}",one), format!("{:?}",id_reg));
+
+	    // first read_next() already tested above
+	    let first_read = mat.read_next();
+	    assert_eq!(format!("{:?}",one), format!("{:?}",first_read.vec));
+
+	    // test second read_next(), should equal first
+	    let second_read = mat.read_next();
+	    assert_eq!(format!("{:?}",one), format!("{:?}",second_read.vec));
+	}
+    }
+
     
 }
