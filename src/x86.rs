@@ -614,8 +614,9 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	let mut missing  = 0;
 
 	// wrap-around
-	if new_rp + 16 >= array_size {
-	    missing  = array_size - (new_rp + 16);
+	if new_rp >= array_size {
+	    eprintln!("array_size {}, new_rp {}", array_size, new_rp);
+	    missing  = array_size - new_rp;
 	    assert!(missing < 16);
 	    new_rp = 0;
 	    self.offset = missing;
@@ -898,6 +899,7 @@ mod tests {
     #[test]
     fn test_matrix_easy_wraparound() {
 
+	// simplest case where matrix size == simd size
 	let mut mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(4, 4, true);
 
 	let identity = [ 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 ];
@@ -925,6 +927,10 @@ mod tests {
 	    // test second read_next(), should equal first
 	    let second_read = mat.read_next();
 	    assert_eq!(format!("{:?}",one), format!("{:?}",second_read.vec));
+
+	    // test third read_next(), should equal first
+	    let third_read = mat.read_next();
+	    assert_eq!(format!("{:?}",one), format!("{:?}",third_read.vec));
 	}
     }
 
