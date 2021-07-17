@@ -514,7 +514,8 @@ pub struct X86SimpleMatrix<S : Simd> {
     reg    : S,			// single read-ahead register
     rp     : usize,		// read pointer (index) in array
     offset : usize,		// offset to shift register by
-
+    mods   : usize,		// counter mod size of array
+    
     // to implement write_next
     or : usize,
     oc : usize,
@@ -537,6 +538,7 @@ impl X86SimpleMatrix<X86u8x16Long0x11b> {
 	let oc = 0;
 	let offset = 0;
 	let rp = 0;
+	let mods = 0;
 
 	// add an extra 15 guard bytes to deal with reading past end
 	// of matrix
@@ -550,7 +552,7 @@ impl X86SimpleMatrix<X86u8x16Long0x11b> {
 
 	X86SimpleMatrix::<X86u8x16Long0x11b> {
 	    rows, cols, is_rowwise, array,
-	    reg, rp, offset, or, oc
+	    reg, rp, offset, or, oc, mods
 	}
     }
 
@@ -570,6 +572,7 @@ impl X86SimpleMatrix<X86u8x16Long0x11b> {
 	}
 	// read-ahead pointer = simd width, since we have read one full register
 	self.rp = 16;
+	self.mods = 16;
     }
 
     // convenience
@@ -607,48 +610,75 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	let reg1 : __m128i;
 	let ret  : __m128i;
 	let array_size = self.rows * self.cols;
+	let mut mods = self.mods;
 
 	// offset only potentially changes at end of matrix
 	let old_offset = self.offset;
+	eprintln!("old offset {}", old_offset);
 	let mut new_rp = self.rp;
 	let mut missing  = 0;
 
 	// wrap-around
-	if new_rp >= array_size {
+	if mods >= array_size {
+	    eprintln!("[wrapping]");
+	    eprintln!("counter mod array size: {}", mods);
+
 	    eprintln!("array_size {}, new_rp {}", array_size, new_rp);
-	    missing  = array_size - new_rp;
+	    // missing = array_size - new_rp;
+	    missing = (16 - (array_size + 16 - new_rp )) & 15;
+
+	    mods -= array_size;
+	    // missing = 16 - mods;
+	    
+	    eprintln!("missing {}", missing);
+
 	    assert!(missing < 16);
 	    new_rp = 0;
-	    self.offset = missing;
+	    self.offset = (16 - missing) & 15;
+	    eprintln!("Next offset: {}", self.offset);
+	} else {
+	    eprintln!("[not wrapping]");
 	}
 
 	// common code
 	let addr_ptr = self.array.as_ptr().offset(new_rp as isize) as *const std::arch::x86_64::__m128i;
 	reg1 = _mm_lddqu_si128(addr_ptr);
-
+	
+	eprintln!("reg0 : {:x?}", reg.vec);
+	eprintln!("reg1 : {:x?}", reg1);
+	
 	// shuffle only if old offset != 0 (saves memory lookups for pshufb)
-	if old_offset != 0 {
-	    // shift reg right by old offset, reg1 left by (16 - old offset - missing)
-	    let no_shuffle_addr = SHUFFLE_MASK.as_ptr().offset(16);
-	    // +ve offsets to no_shuffle_addr => shr
-	    let rsh_addr = no_shuffle_addr.offset(old_offset as isize);
-	    let lsh_addr = no_shuffle_addr.offset((old_offset + missing - 16) as isize);
-	    
-	    // do the shuffle
-	    let rsh_mask = _mm_lddqu_si128(rsh_addr as *const std::arch::x86_64::__m128i);
-	    let lsh_mask = _mm_lddqu_si128(lsh_addr as *const std::arch::x86_64::__m128i);
-	    ret =_mm_or_si128 (
-		_mm_shuffle_epi8(reg.vec, rsh_mask),
-		_mm_shuffle_epi8(reg.vec, lsh_mask),
-	    )
-	} else {
-	    ret = self.reg.vec;
-	}
+	// but do 
+	//	if (old_offset != 0) || (missing != 0) {
+	
+	// shift reg right by old offset, reg1 left by (16 - old offset - missing)
+	let no_shuffle_addr = SHUFFLE_MASK.as_ptr().offset(16);
+	// +ve offsets to no_shuffle_addr => shr
+	eprintln!("Shifting reg by {}, reg1 by {}",
+		  old_offset,
+		  (old_offset + missing) as isize  - 16);
+
+	let rsh_addr = no_shuffle_addr.offset(old_offset as isize);
+	let lsh_addr = no_shuffle_addr.offset((old_offset + missing) as isize  - 16);
+
+	// do the shuffle
+	let rsh_mask = _mm_lddqu_si128(rsh_addr as *const std::arch::x86_64::__m128i);
+	let lsh_mask = _mm_lddqu_si128(lsh_addr as *const std::arch::x86_64::__m128i);
+	ret =_mm_or_si128 (
+	    _mm_shuffle_epi8(reg.vec, rsh_mask),
+	    _mm_shuffle_epi8(reg1,    lsh_mask),
+	);
+	
+	//	} else {
+	//	    ret = self.reg.vec;
+	//	}
 
 	// register, read pointer always advance
 	self.reg = X86u8x16Long0x11b{vec : reg1};
 	self.rp  = new_rp + 16;
-	    
+	self.mods = mods + 16;
+	
+	eprintln!("RETURN VALUE ---->: {:x?}", ret);
 	X86u8x16Long0x11b{vec : ret}
     }
     fn write_next(&mut self, _e : u8) {
@@ -918,19 +948,19 @@ mod tests {
 	    // just to be sure that the above is correct:
 	    let array_ptr = identity.as_ptr() as *const std::arch::x86_64::__m128i;
 	    let id_reg = _mm_lddqu_si128(array_ptr);
-	    assert_eq!(format!("{:?}",one), format!("{:?}",id_reg));
+	    assert_eq!(format!("{:x?}",one), format!("{:x?}",id_reg));
 
 	    // first read_next() already tested above
-	    let first_read = mat.read_next();
-	    assert_eq!(format!("{:?}",one), format!("{:?}",first_read.vec));
+	    let read = mat.read_next();
+	    assert_eq!(format!("{:x?}",one), format!("{:x?}",read.vec));
 
 	    // test second read_next(), should equal first
-	    let second_read = mat.read_next();
-	    assert_eq!(format!("{:?}",one), format!("{:?}",second_read.vec));
+	    let read = mat.read_next();
+	    assert_eq!(format!("{:x?}",one), format!("{:x?}",read.vec));
 
 	    // test third read_next(), should equal first
-	    let third_read = mat.read_next();
-	    assert_eq!(format!("{:?}",one), format!("{:?}",third_read.vec));
+	    let read = mat.read_next();
+	    assert_eq!(format!("{:x?}",one), format!("{:x?}",read.vec));
 	}
     }
 
@@ -958,27 +988,27 @@ mod tests {
 	    let ff2 =  _mm_lddqu_si128(ff2_addr);
 
 	    // just to be sure that the above is correct:
-	    assert_eq!(format!("{:?}",ff1), format!("{:?}",ff2));
+	    assert_eq!(format!("{:x?}",ff1), format!("{:x?}",ff2));
 
 	    // 1st
-	    let first_read = mat.read_next();
-	    assert_eq!(format!("{:?}",ff1), format!("{:?}",first_read.vec));
+	    let read = mat.read_next();
+	    assert_eq!(format!("{:x?}",ff1), format!("{:x?}",read.vec));
 
 	    // 2nd
-	    let second_read = mat.read_next();
-	    assert_eq!(format!("{:?}",inc), format!("{:?}",second_read.vec));
+	    let read = mat.read_next();
+	    assert_eq!(format!("{:x?}",inc), format!("{:x?}",read.vec));
 
 	    // 3rd
-	    let third_read = mat.read_next();
-	    assert_eq!(format!("{:?}",ff1), format!("{:?}",third_read.vec));
+	    let read = mat.read_next();
+	    assert_eq!(format!("{:x?}",ff1), format!("{:x?}",read.vec));
 
 	    // 4th
-	    let fourth_read = mat.read_next();
-	    assert_eq!(format!("{:?}",ff1), format!("{:?}",fourth_read.vec));
+	    let read = mat.read_next();
+	    assert_eq!(format!("{:x?}",ff1), format!("{:x?}",read.vec));
 
 	    // 5th
-	    let fifth_read = mat.read_next();
-	    assert_eq!(format!("{:?}",inc), format!("{:?}",fifth_read.vec));
+	    let read = mat.read_next();
+	    assert_eq!(format!("{:x?}",inc), format!("{:x?}",read.vec));
 	}
     }
 
@@ -1004,7 +1034,8 @@ mod tests {
 
 	unsafe {
 
-	    // do this in a loop that tests all pathways in code (lcm(21,16))
+	    // do this in a loop that tests all pathways in code
+	    // lcm(21,16) = 21 * 16
 
 	    for _ in 0..21*16 {
 	    
@@ -1017,7 +1048,7 @@ mod tests {
 
 		let mat_read = mat.read_next();
 
-		assert_eq!(format!("{:?}",mat_read.vec), format!("{:?}",expect));
+		assert_eq!(format!("{:x?}",mat_read.vec), format!("{:x?}",expect));
 	    }
 	}
     }
