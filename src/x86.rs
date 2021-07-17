@@ -512,8 +512,8 @@ pub struct X86SimpleMatrix<S : Simd> {
 
     // to implement read_next
     reg    : S,			// single read-ahead register
+    ra     : usize,		// readahead amount (how full is reg)
     rp     : usize,		// read pointer (index) in array
-    offset : usize,		// offset to shift register by
     mods   : usize,		// counter mod size of array
     
     // to implement write_next
@@ -536,7 +536,7 @@ impl X86SimpleMatrix<X86u8x16Long0x11b> {
 
 	let or = 0;
 	let oc = 0;
-	let offset = 0;
+	let ra = 0;
 	let rp = 0;
 	let mods = 0;
 
@@ -552,7 +552,7 @@ impl X86SimpleMatrix<X86u8x16Long0x11b> {
 
 	X86SimpleMatrix::<X86u8x16Long0x11b> {
 	    rows, cols, is_rowwise, array,
-	    reg, rp, offset, or, oc, mods
+	    reg, rp, ra, or, oc, mods
 	}
     }
 
@@ -565,14 +565,18 @@ impl X86SimpleMatrix<X86u8x16Long0x11b> {
 
 	unsafe {
 	    // Set up read-ahead register based on new data
-	    let array_ptr = self.array.as_ptr() as *const std::arch::x86_64::__m128i;
+	    // let array_ptr = self.array.as_ptr() as *const std::arch::x86_64::__m128i;
 
 	    // risk an aligned load (use repr align on struct if it fails)
-	    self.reg = X86u8x16Long0x11b{vec : _mm_load_si128(array_ptr)};
+	    // self.reg = X86u8x16Long0x11b{vec : _mm_load_si128(array_ptr)};
+	    
+	    // read-ahead pointer = simd width, since we have read one full register
+	    self.reg = X86u8x16Long0x11b { vec :_mm_setzero_si128() };
 	}
-	// read-ahead pointer = simd width, since we have read one full register
-	self.rp = 16;
-	self.mods = 16;
+
+	self.ra  = 0; 		// read-ahead amount
+	self.rp = 0;
+	self.mods = 0;
     }
 
     // convenience
@@ -606,45 +610,101 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	// Stub. Interestingly, this would be sufficient for a 4x4 matrix
 	// return self.reg;
 
-	let reg = self.reg;
-	let reg1 : __m128i;
+	let reg0 = self.reg;
+	let mut reg1 : __m128i;
 	let ret  : __m128i;
 	let array_size = self.rows * self.cols;
 	let mut mods = self.mods;
 
+	assert!(mods < array_size);
+
+	let addr_ptr = self.array.as_ptr().offset(self.rp as isize) as *const std::arch::x86_64::__m128i;
+	reg1 = _mm_lddqu_si128(addr_ptr);
+
+	let old_offset = self.ra;
+
+	// This rework makes all the previously passing tests pass again.
+	
+	if mods + 16 <= array_size {
+
+	    // can safely read without wrap-around
+
+	    let missing = 16 - old_offset;
+
+	    // if we have no partial reads from before, must merge
+	    // that with this and save new remainder
+
+	    if old_offset != 0 {
+		// shift reg right by old offset, reg1 left by (16 - old offset - missing)
+		let no_shuffle_addr = SHUFFLE_MASK.as_ptr().offset(16);
+		// +ve offsets to no_shuffle_addr => shr
+		eprintln!("Shifting reg0 by {}, reg1 by {}",
+			  old_offset,
+			  (old_offset + missing) as isize  - 16);
+
+		let rsh_addr = no_shuffle_addr.offset(old_offset as isize);
+		let lsh_addr = no_shuffle_addr.offset((old_offset + missing) as isize  - 16);
+
+		// do the shuffle
+		let rsh_mask = _mm_lddqu_si128(rsh_addr as *const std::arch::x86_64::__m128i);
+		let lsh_mask = _mm_lddqu_si128(lsh_addr as *const std::arch::x86_64::__m128i);
+		ret =_mm_or_si128 (
+		    _mm_shuffle_epi8(reg0.vec, rsh_mask),
+		    _mm_shuffle_epi8(reg1,    lsh_mask),
+		);
+	    } else {
+		ret = reg1;
+	    }
+	
+	    // update state and return
+	    self.rp   += 16;
+	    self.mods += 16;
+	    if self.mods == array_size {
+		self.mods -= array_size;
+		self.rp = 0;
+	    }
+	    self.reg = X86u8x16Long0x11b{vec : reg1};
+	    return X86u8x16Long0x11b{vec : ret};
+	}
+
+	eprintln!("[wrapping]");
+	eprintln!("counter mod array size: {}", mods);
+	
 	// offset only potentially changes at end of matrix
-	let old_offset = self.offset;
+	let old_offset = self.ra;
 	eprintln!("old offset {}", old_offset);
 	let mut new_rp = self.rp;
 	let mut missing  = 0;
 
 	// wrap-around
 	if mods >= array_size {
-	    eprintln!("[wrapping]");
-	    eprintln!("counter mod array size: {}", mods);
-
-	    eprintln!("array_size {}, new_rp {}", array_size, new_rp);
-	    // missing = array_size - new_rp;
-	    missing = (16 - (array_size + 16 - new_rp )) & 15;
 
 	    mods -= array_size;
-	    // missing = 16 - mods;
+	    eprintln!("updated counter mod array size: {}", mods);
+
+	    missing = mods;
+	    
+	    eprintln!("array_size {}, new_rp {}", array_size, new_rp);
+	    // missing = array_size - new_rp;
+	    // missing = (16 - (array_size + 16 - new_rp )) & 15;
+
 	    
 	    eprintln!("missing {}", missing);
 
 	    assert!(missing < 16);
 	    new_rp = 0;
-	    self.offset = (16 - missing) & 15;
-	    eprintln!("Next offset: {}", self.offset);
+	    self.ra = (16 - missing) & 15;
+	    eprintln!("Next offset: {}", self.ra);
 	} else {
 	    eprintln!("[not wrapping]");
+	    
 	}
 
 	// common code
 	let addr_ptr = self.array.as_ptr().offset(new_rp as isize) as *const std::arch::x86_64::__m128i;
 	reg1 = _mm_lddqu_si128(addr_ptr);
 	
-	eprintln!("reg0 : {:x?}", reg.vec);
+	eprintln!("reg0 : {:x?}", reg0.vec);
 	eprintln!("reg1 : {:x?}", reg1);
 	
 	// shuffle only if old offset != 0 (saves memory lookups for pshufb)
@@ -665,8 +725,8 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	let rsh_mask = _mm_lddqu_si128(rsh_addr as *const std::arch::x86_64::__m128i);
 	let lsh_mask = _mm_lddqu_si128(lsh_addr as *const std::arch::x86_64::__m128i);
 	ret =_mm_or_si128 (
-	    _mm_shuffle_epi8(reg.vec, rsh_mask),
-	    _mm_shuffle_epi8(reg1,    lsh_mask),
+	    _mm_shuffle_epi8(reg0.vec, rsh_mask),
+	    _mm_shuffle_epi8(reg1,     lsh_mask),
 	);
 	
 	//	} else {
