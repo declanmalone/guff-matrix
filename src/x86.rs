@@ -598,6 +598,24 @@ const SHUFFLE_MASK : [u8; 48] = [
     255u8, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
 ];
 
+//
+// Doing all aligned reads, eg simd width 4, matrix size 5
+//
+// Reads at A and E are aligned:
+//
+// Matrix     ABCD EABC DEAB CDEA BCDE
+//            ABCD
+//                 E---
+//                  ABC D
+//                       E-- -
+//                        AB CD
+//                             E- --
+//                              A BCD
+//                                   E ---
+//
+//            ABCD EABC DEAB CDEA BCDE
+
+
 impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 
     const SIMD_SIZE : usize = 128;
@@ -624,10 +642,12 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	let old_offset = self.ra;
 
 	// This rework makes all the previously passing tests pass again.
-	
+
+	// <= because there's no straddling and we can continue rp at zero again
 	if mods + 16 <= array_size {
 
 	    // can safely read without wrap-around
+	    eprintln!("[not wrapping]");
 
 	    let missing = 16 - old_offset;
 
@@ -635,6 +655,8 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	    // that with this and save new remainder
 
 	    if old_offset != 0 {
+		panic!();	// this arm not tested yet!
+		
 		// shift reg right by old offset, reg1 left by (16 - old offset - missing)
 		let no_shuffle_addr = SHUFFLE_MASK.as_ptr().offset(16);
 		// +ve offsets to no_shuffle_addr => shr
@@ -669,14 +691,58 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 
 	eprintln!("[wrapping]");
 	eprintln!("counter mod array size: {}", mods);
+
+	// Have to combine some of reg1 with a new stream starting
+	// from rp = 0
+
+	mods = mods + 16 - array_size;
+	
+	let mut missing  = mods;
+	eprintln!("missing {}", missing);
+
+	// assert_eq!(old_offset, 16 - mods);
+	
+	let addr_ptr = self.array.as_ptr() as *const std::arch::x86_64::__m128i;
+	let wrap = _mm_lddqu_si128(addr_ptr);
+
+	self.rp = 16;
+	
+	// Combine of reg1 and wrap giving new reg1
+
+	eprintln!("Combining reg1 {:x?} and wrap {:x?}", reg1, wrap);
+	
+	
+	// shift reg1 right by 0,  left by (16 - old offset - missing)
+	let no_shuffle_addr = SHUFFLE_MASK.as_ptr().offset(16);
+
+	// +ve offsets to no_shuffle_addr => shr
+	eprintln!("Shifting reg by {}, reg1 by {}",
+		  old_offset,
+		  (old_offset + missing) as isize  - 16);
+
+	let rsh_addr = no_shuffle_addr.offset(old_offset as isize);
+	let lsh_addr = no_shuffle_addr.offset((old_offset + missing) as isize  - 16);
+
+	// do the shuffle
+	let rsh_mask = _mm_lddqu_si128(rsh_addr as *const std::arch::x86_64::__m128i);
+	let lsh_mask = _mm_lddqu_si128(lsh_addr as *const std::arch::x86_64::__m128i);
+	ret =_mm_or_si128 (
+	    _mm_shuffle_epi8(reg0.vec, rsh_mask),
+	    _mm_shuffle_epi8(reg1,     lsh_mask),
+	);
+	
+
+	// ---
+
 	
 	// offset only potentially changes at end of matrix
 	let old_offset = self.ra;
 	eprintln!("old offset {}", old_offset);
 	let mut new_rp = self.rp;
-	let mut missing  = 0;
 
-	// wrap-around
+
+	
+	// old wrap-around
 	if mods >= array_size {
 
 	    mods -= array_size;
@@ -689,21 +755,15 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	    // missing = (16 - (array_size + 16 - new_rp )) & 15;
 
 	    
-	    eprintln!("missing {}", missing);
 
 	    assert!(missing < 16);
 	    new_rp = 0;
 	    self.ra = (16 - missing) & 15;
 	    eprintln!("Next offset: {}", self.ra);
 	} else {
-	    eprintln!("[not wrapping]");
 	    
 	}
 
-	// common code
-	let addr_ptr = self.array.as_ptr().offset(new_rp as isize) as *const std::arch::x86_64::__m128i;
-	reg1 = _mm_lddqu_si128(addr_ptr);
-	
 	eprintln!("reg0 : {:x?}", reg0.vec);
 	eprintln!("reg1 : {:x?}", reg1);
 	
