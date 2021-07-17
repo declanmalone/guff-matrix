@@ -679,7 +679,7 @@ pub trait SimdMatrix<S : Simd> {
     fn is_rowwise(&self) -> bool;
     fn rows(&self) -> usize;
     fn cols(&self) -> usize;
-    fn read_next(&self) -> S;
+    unsafe fn read_next(&mut self) -> S;
     fn write_next(&mut self, val : S::E);
 
     // not required by multiply. Maybe move to a separate accessors

@@ -245,7 +245,7 @@ pub unsafe fn vector_cube_p8x16(a : __m128i, poly : u8) -> __m128i {
 // only have a single simd multiplication (cross product) routine.
 //
 
-use super::Simd;
+use super::{Simd,SimdMatrix};
 
 #[derive(Clone,Copy,Debug)]
 struct X86u8x16Long0x11b {
@@ -306,8 +306,8 @@ impl Simd for X86u8x16Long0x11b {
     //#[target_feature(enable = "sse41")]
     unsafe fn sum_across_n(lo : Self, hi : Self, mut n : usize, off : usize)
 			   -> (Self::E, Self) {
-	assert!(off < 16);
-	assert!(n <= 16);
+	// TODO: rewrite this using pshufb and masks
+	assert!((off < 16) && (n > 0) && (n <= 16));
 	unsafe {
 	    // now the fun(?) starts ... looking for intrinsics
 	    // to implement this ...
@@ -370,9 +370,9 @@ impl Simd for X86u8x16Long0x11b {
 	    // Actually, my sum across products is also in doubt. Ah, no,
 	    // it's fine. We can still shift by a constant amount.
 
-	    eprintln!("Taking {} bytes starting at offset {}", n, off);
-	    eprintln!("lo vector: {:x?}", lo);
-	    eprintln!("hi vector: {:x?}", hi);
+	    // eprintln!("Taking {} bytes starting at offset {}", n, off);
+	    // eprintln!("lo vector: {:x?}", lo);
+	    // eprintln!("hi vector: {:x?}", hi);
 	    
 	    // That gives me an idea... the following can be converted
 	    // into binary searches. Hopefully, though, it compiles down
@@ -399,7 +399,7 @@ impl Simd for X86u8x16Long0x11b {
 		_ => { c = hi.vec },	// unreachable, but satisfy compiler
 	    }
 
-	    eprintln!("c after alignr: {:x?}", c);
+	    // eprintln!("c after alignr: {:x?}", c); 
 	    
 	    // That only gets rid of the first `off` bytes. We also then
 	    // have to select the next n bytes to sum together.
@@ -420,54 +420,58 @@ impl Simd for X86u8x16Long0x11b {
 	    // the high byte, perhaps?
 	    //
 	    
-	    match n {
-		16 => {},
-		15 => { c = _mm_srli_si128(_mm_slli_si128(c, 1), 1) },
-		14 => { c = _mm_srli_si128(_mm_slli_si128(c, 2), 2) },
-		13 => { c = _mm_srli_si128(_mm_slli_si128(c, 3), 3) },
-		12 => { c = _mm_srli_si128(_mm_slli_si128(c, 4), 4) },
-		11 => { c = _mm_srli_si128(_mm_slli_si128(c, 5), 5) },
-		10 => { c = _mm_srli_si128(_mm_slli_si128(c, 6), 6) },
-		9  => { c = _mm_srli_si128(_mm_slli_si128(c, 7), 7) },
-		_  => { c = _mm_srli_si128(_mm_slli_si128(c, 8), 8) },
-	    }
-	    if n > 8 { n = 8 }
-	    c = _mm_xor_si128(c, _mm_srli_si128(c, 8));
-	    eprintln!("c after first xor: {:x?}", c);
+	    // Xor across n byte elements of a 128-bit simd register:
+	    // * Masks out bytes above n using shifts,
+	    // * xors by half remaining step size
+	    // * log_2 (max_n) steps
+            match n {
+                16 => {},
+                15 => { c = _mm_srli_si128(_mm_slli_si128(c, 1), 1) },
+                14 => { c = _mm_srli_si128(_mm_slli_si128(c, 2), 2) },
+                13 => { c = _mm_srli_si128(_mm_slli_si128(c, 3), 3) },
+                12 => { c = _mm_srli_si128(_mm_slli_si128(c, 4), 4) },
+                11 => { c = _mm_srli_si128(_mm_slli_si128(c, 5), 5) },
+                10 => { c = _mm_srli_si128(_mm_slli_si128(c, 6), 6) },
+                9  => { c = _mm_srli_si128(_mm_slli_si128(c, 7), 7) },
+                _  => { c = _mm_srli_si128(_mm_slli_si128(c, 8), 8) },
+            }
+            if n > 8 { n = 8 }
+            c = _mm_xor_si128(c, _mm_srli_si128(c, 8));
+            // eprintln!("c after first xor: {:x?}", c);
 
-	    eprintln!("n is now {}", n);
-	    match n {
-		8 => { },
-		7 => { c = _mm_srli_si128(_mm_slli_si128(c, 9), 9) },
-		6 => { c = _mm_srli_si128(_mm_slli_si128(c, 10), 10) },
-		5 => { c = _mm_srli_si128(_mm_slli_si128(c, 11), 11) },
-		_ => { c = _mm_srli_si128(_mm_slli_si128(c, 12), 12) },
-	    }
-	    if n > 4 { n = 4 }
-	    c = _mm_xor_si128(c, _mm_srli_si128(c, 4));
-	    eprintln!("c after second xor: {:x?}", c);
+            // eprintln!("n is now {}", n);
+            match n {
+                8 => { },
+                7 => { c = _mm_srli_si128(_mm_slli_si128(c, 9), 9) },
+                6 => { c = _mm_srli_si128(_mm_slli_si128(c, 10), 10) },
+                5 => { c = _mm_srli_si128(_mm_slli_si128(c, 11), 11) },
+                _ => { c = _mm_srli_si128(_mm_slli_si128(c, 12), 12) },
+            }
+            if n > 4 { n = 4 }
+            c = _mm_xor_si128(c, _mm_srli_si128(c, 4));
+            // eprintln!("c after second xor: {:x?}", c);
 
-	    eprintln!("n is now {}", n);
-	    match n {
-		4 => { },
-		3 => { c = _mm_srli_si128(_mm_slli_si128(c, 13), 13) },
-		_ => { c = _mm_srli_si128(_mm_slli_si128(c, 14), 14) },
-		}
-	    if n > 2 { n = 2 }
-	    c = _mm_xor_si128(c, _mm_srli_si128(c, 2));
-	    eprintln!("c after third xor: {:x?}", c);
+            // eprintln!("n is now {}", n);
+            match n {
+                4 => { },
+                3 => { c = _mm_srli_si128(_mm_slli_si128(c, 13), 13) },
+                _ => { c = _mm_srli_si128(_mm_slli_si128(c, 14), 14) },
+                }
+            if n > 2 { n = 2 }
+            c = _mm_xor_si128(c, _mm_srli_si128(c, 2));
+            // eprintln!("c after third xor: {:x?}", c);
 
-	    eprintln!("n is now {}", n);
-	    match n {
-		2 => { },
-		_ => { c = _mm_slli_si128(_mm_srli_si128(c, 15), 15) },
-	    }
-	    c = _mm_xor_si128(c, _mm_srli_si128(c, 1));
-	    eprintln!("c after fourth xor: {:x?}", c);
-	    let extracted : u8 = (_mm_extract_epi8(c, 0) & 255) as u8;
-	    eprintln!("Extracting low byte: {:x}", extracted);
+            // eprintln!("n is now {}", n);
+            match n {
+                2 => { },
+                _ => { c = _mm_slli_si128(_mm_srli_si128(c, 15), 15) },
+            }
+            c = _mm_xor_si128(c, _mm_srli_si128(c, 1));
+            // eprintln!("c after fourth xor: {:x?}", c);
+            let extracted : u8 = (_mm_extract_epi8(c, 0) & 255) as u8;
+            // eprintln!("Extracting low byte: {:x}", extracted);
             return (extracted, m);
-	    
+            
 	    // OK: alignr doesn't work because the offset has to be a
 	    // constant. Plan B.
 
@@ -492,9 +496,104 @@ impl Simd for X86u8x16Long0x11b {
 // have variants such as:
 //
 // * caching complete matrix in a small number of registers
-// * 
+// * work over memory, but for small matrix sizes (needs extra checks)
+// * work over memory with "safe" (not small) sizes
+// 
 
+// First version ... the latter ... matrices are at least as big as
+// simd. In fact, make it greater than twice the simd size. Smallest
+// usable identity matrix is then 4x4 = 16.
+//
+// My reason for choosing this is that it makes read-ahead easier if
+// we can start off (in the constructor) by reading in a full register
+// without needing to worry about wrap-around.
 
+pub struct X86SimpleMatrix<S : Simd> {
+
+    // to implement read_next
+    reg    : S,			// only need a single register
+    rp     : usize,		// read pointer (index) in array
+    offset : usize,		// offset to shift register by
+
+    // to implement write_next
+    or : usize,
+    oc : usize,
+    
+    rows : usize,
+    cols : usize,
+    array : Vec<u8>,
+    is_rowwise : bool,
+}
+
+// table for pshufb (_mm_shuffle_epi8())
+const SHUFFLE_MASK : [u8; 48] = [
+    255u8, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        0,   1,   2,   3,   4,   5,   6,   7,   8,   9,  10,  11,  12,  13,  14,  15,
+    255u8, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+];
+
+impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
+
+    const SIMD_SIZE : usize = 128;
+
+    fn rows(&self) -> usize { self.rows }
+    fn cols(&self) -> usize { self.cols }
+    fn is_rowwise(&self) -> bool { self.is_rowwise }
+
+    unsafe fn read_next(&mut self) -> X86u8x16Long0x11b {
+	// Stub. Interestingly, this would be sufficient for a 4x4 matrix
+	// return self.reg;
+
+	let reg = self.reg;
+	let reg1 : __m128i;
+	let ret  : __m128i;
+	let array_size = self.rows * self.cols;
+	assert!(array_size >= 16); // todo: move check to constructor
+
+	// offset only potentially changes at end of matrix
+	let old_offset = self.offset;
+	let mut new_rp = self.rp;
+	let mut missing  = 0;
+
+	// wrap-around
+	if new_rp + 16 >= array_size {
+	    missing  = array_size - (new_rp + 16);
+	    assert!(missing < 16);
+	    new_rp = 0;
+	    self.offset = missing;
+	}
+
+	// common code
+	let addr_ptr = self.array.as_ptr().offset(new_rp as isize) as *const std::arch::x86_64::__m128i;
+	reg1 = _mm_lddqu_si128(addr_ptr);
+
+	// shuffle only if old offset != 0 (saves memory lookups for pshufb)
+	if old_offset != 0 {
+	    // shift reg right by old offset, reg1 left by (16 - old offset - missing)
+	    let no_shuffle_addr = SHUFFLE_MASK.as_ptr().offset(16);
+	    // +ve offsets to no_shuffle_addr => shr
+	    let rsh_addr = no_shuffle_addr.offset(old_offset as isize);
+	    let lsh_addr = no_shuffle_addr.offset((old_offset + missing - 16) as isize);
+	    
+	    // do the shuffle
+	    let rsh_mask = _mm_lddqu_si128(rsh_addr as *const std::arch::x86_64::__m128i);
+	    let lsh_mask = _mm_lddqu_si128(lsh_addr as *const std::arch::x86_64::__m128i);
+	    ret =_mm_or_si128 (
+		_mm_shuffle_epi8(reg.vec, rsh_mask),
+		_mm_shuffle_epi8(reg.vec, lsh_mask),
+	    )
+	} else {
+	    ret = self.reg.vec;
+	}
+
+	// register, read pointer always advance
+	self.reg = X86u8x16Long0x11b{vec : reg1};
+	self.rp  = new_rp + 16;
+	    
+	X86u8x16Long0x11b{vec : ret}
+    }
+    fn write_next(&mut self, _e : u8) { }
+}
 
 
 #[cfg(test)]

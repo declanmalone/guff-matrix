@@ -490,7 +490,7 @@ impl Simd for SimSimd {
 	Self { vec : prod }
     }
     // 
-    unsafe fn sum_across_n(m0 : Self, m1 : Self, mut n : usize, off : usize) -> (Self::E, Self) {
+    fn sum_across_n(m0 : Self, m1 : Self, mut n : usize, off : usize) -> (Self::E, Self) {
 	assert!(n <= 8);
 	let mut sum = 0u8;
 	if off + n >= 8 {	// straddle, will return m1
@@ -714,7 +714,7 @@ pub fn simsimd_warm_multiply(xform  : &mut SimSimdTransformMatrix,
 	    let want = k - dp_counter; // always strictly positive
 	    
 	    // eprintln!("Calling sum_across_n with m0 {:?}, m1 {:?}, n {}, offset {}",
-		      m0.vec, m1.vec, want, offset_mod_simd);
+	    //      m0.vec, m1.vec, want, offset_mod_simd);
 	    let (part, new_m) = SimSimd::sum_across_n(m0,m1,want,offset_mod_simd);
 
 	    // eprintln!("got sum {}, new m {:?}", part, new_m.vec);
