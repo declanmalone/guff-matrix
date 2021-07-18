@@ -295,7 +295,7 @@ impl X86u8x16Long0x11b {
 	assert!(bytes != 16);
 
 	eprintln!("Combining {} bytes of r0 ({:x?} with r1 ({:x?}",
-		  bytes, r0, r1);
+		  bytes, r0.vec, r1.vec);
 	
 	// calculate r0 | (r1 >> bytes)
 	Self { vec : _mm_or_si128 (r0.vec, Self::left_shift(r1, bytes).vec) }
@@ -774,29 +774,30 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	if will_wrap_around {
 	    new_mods -= array_size;
 	    let from_new = new_mods;	  // from new read
-	    let from_end = 16 - new_mods; // from reg1
-	    let new_ra;
+	    let from_end = 16 - new_mods - old_offset; // from reg1
 
-	    eprintln!("[wrapping]");
+	    eprintln!("\n[wrapping]\n");
 	    eprintln!("old_offset: {}", old_offset);
-	    eprintln!("from_new: {}", old_offset);
-	    eprintln!("from_end: {}", old_offset);
+	    eprintln!("from_new: {}", from_new);
+	    eprintln!("from_end: {}", from_end);
 	    
 	    // reg1 <- reg0 | reg1 << old_offset
 	    if old_offset == 0 {
 		// noop: reg1 <- reg1
 	    } else {
+		eprintln!("combining reg0, reg1");
 		reg1 = X86u8x16Long0x11b::combine_bytes(reg0, reg1, old_offset);
 	    }
 
 	    // Now determine whether we need any more bytes from new
 	    // stream.
 
+	    let have_bytes = old_offset + from_end;
 	    self.rp = 0;
-	    if old_offset + from_end != 16 {
+	    if have_bytes != 16 {
 
 		let missing = 16 - old_offset - from_end;
-		
+
 		// need to read from start
 		let addr_ptr = self.array
 		    .as_ptr()
@@ -807,22 +808,29 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 		eprintln!("Will take {} bytes from new stream",  missing);
 
 		// append part of new stream to reg1
-		reg1 = X86u8x16Long0x11b::combine_bytes(reg1, new, missing);
+		eprintln!("combining reg1 {:x?}, new {:x?}", reg1.vec, new.vec);
+		reg1 = X86u8x16Long0x11b::combine_bytes(reg1, new, have_bytes);
+		eprintln!("new reg1 {:x?}", reg1.vec);
 
-		// save unused part in reg2 (becomes new read-ahead)
-		self.reg = X86u8x16Long0x11b::right_shift(new, 16 - missing);
-		
+		// save unused part as new read-ahead
+		let future_bytes = 16 - missing;
+		eprintln!("saving {} future bytes from new  {:x?}", future_bytes, new.vec);
+		self.reg = X86u8x16Long0x11b::future_bytes(new, future_bytes);
+		eprintln!("saved {:x?}", self.reg.vec);
+
 		// calculate updated ra
-		new_ra = 16 - missing;
+		self.ra = future_bytes;
 
 	    } else {
+		
 		self.ra = 0
 	    }
 
 	    // save updated values and return
 	    self.mods = new_mods;
-	    return reg1;
 
+	    // return value
+	    ret = reg1
 	} else {
 	
 	// This rework makes all the previously passing tests pass again.
@@ -831,7 +839,7 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	// if mods + 16 <= array_size {
 
 	    // can safely read without wrap-around
-	    eprintln!("[not wrapping]");
+	    eprintln!("\n[not wrapping]\n");
 
 	    let missing = 16 - old_offset;
 
@@ -870,9 +878,11 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 		self.rp = 0;
 	    }
 	    self.reg = reg1;
-	    return ret;
 	}
 
+	eprintln!("returning {:x?}", ret.vec);
+
+	ret
 	// eprintln!("[wrapping]");
 	// eprintln!("counter mod array size: {}", mods);
 
