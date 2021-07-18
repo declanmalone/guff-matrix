@@ -756,12 +756,21 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	let     mods = self.mods;
 	let mut new_mods = mods + 16;
 
+	eprintln!("\n\nmods was {}, new_mods is {}", mods, new_mods);
+	
 	assert!(mods < array_size);
 
 	// we will always read something from array
 	let addr_ptr = self.array.as_ptr().offset(self.rp as isize) as *const std::arch::x86_64::__m128i;
 	reg1 = X86u8x16Long0x11b { vec :_mm_lddqu_si128(addr_ptr) };
+	self.rp += 16;
 
+	let mut deficit = 0;
+	if self.rp >= array_size && new_mods < array_size {
+	    deficit = self.rp - array_size;
+	}
+	eprintln!("Deficit is {}", deficit);
+	
 	let old_offset = self.ra;
 	let missing = 16 - old_offset;
 
@@ -770,16 +779,25 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	let had_readahead    : bool = old_offset != 0;
 	let will_read_again  : bool = will_wrap_around && (old_offset + missing != 16);
 
-	
 	if will_wrap_around {
-	    new_mods -= array_size;
-	    let from_new = new_mods;	  // from new read
-	    let from_end = 16 - new_mods - old_offset; // from reg1
-
 	    eprintln!("\n[wrapping]\n");
+	    new_mods -= array_size;
+	    eprintln!("new mods {}", new_mods);
+
+	    let want_bytes = 16 - old_offset;
 	    eprintln!("old_offset: {}", old_offset);
+	    eprintln!("want_bytes: {}", want_bytes);
+	    
+	    let from_new = if want_bytes < new_mods {
+		want_bytes
+	    } else {
+		new_mods
+	    }; // from reg1
 	    eprintln!("from_new: {}", from_new);
+
+	    let from_end = want_bytes - from_new;	  // from new read
 	    eprintln!("from_end: {}", from_end);
+
 	    
 	    // reg1 <- reg0 | reg1 << old_offset
 	    if old_offset == 0 {
@@ -793,6 +811,7 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	    // stream.
 
 	    let have_bytes = old_offset + from_end;
+	    eprintln!("have_bytes is {}", have_bytes);
 	    self.rp = 0;
 	    if have_bytes != 16 {
 
@@ -807,16 +826,22 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 
 		eprintln!("Will take {} bytes from new stream",  missing);
 
-		// append part of new stream to reg1
-		eprintln!("combining reg1 {:x?}, new {:x?}", reg1.vec, new.vec);
-		reg1 = X86u8x16Long0x11b::combine_bytes(reg1, new, have_bytes);
+		if (have_bytes == 0) {
+		    reg1 = new
+		} else {   
+		    // append part of new stream to reg1
+		    eprintln!("combining reg1 {:x?}, new {:x?}", reg1.vec, new.vec);
+		    reg1 = X86u8x16Long0x11b::combine_bytes(reg1, new, have_bytes);
+		}
 		eprintln!("new reg1 {:x?}", reg1.vec);
 
 		// save unused part as new read-ahead
 		let future_bytes = 16 - missing;
 		eprintln!("saving {} future bytes from new  {:x?}", future_bytes, new.vec);
-		self.reg = X86u8x16Long0x11b::future_bytes(new, future_bytes);
-		eprintln!("saved {:x?}", self.reg.vec);
+		if (future_bytes != 0) {
+		    self.reg = X86u8x16Long0x11b::future_bytes(new, future_bytes);
+		    eprintln!("saved {:x?}", self.reg.vec);
+		}
 
 		// calculate updated ra
 		self.ra = future_bytes;
@@ -833,13 +858,14 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	    ret = reg1
 	} else {
 	
-	// This rework makes all the previously passing tests pass again.
+	    // This rework makes all the previously passing tests pass again.
 
-	// <= because there's no straddling and we can continue rp at zero again
-	// if mods + 16 <= array_size {
+	    // <= because there's no straddling and we can continue rp at zero again
+	    // if mods + 16 <= array_size {
 
 	    // can safely read without wrap-around
 	    eprintln!("\n[not wrapping]\n");
+	    eprintln!("old_offset: {}", old_offset);
 
 	    let missing = 16 - old_offset;
 
@@ -847,37 +873,56 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	    // that with this and save new remainder
 
 	    if old_offset != 0 {
-		panic!();	// this arm not tested yet!
+
+		eprintln!("combining reg0 {:x?}, reg1 {:x?}", reg0.vec, reg1.vec);
+		ret = X86u8x16Long0x11b::combine_bytes(reg0, reg1, old_offset);
+		eprintln!("retval {:x?}", ret.vec);
+
+		// save unused part as new read-ahead
+
+		// OK. We may have got fewer than 16 bytes on the
+		// read. The logic that I'm using for when wrap-around
+		// happens lets that happen.
+		let future_bytes = if deficit != 0 { old_offset - deficit } else { old_offset };
+		self.ra = future_bytes;
+		eprintln!("future_bytes is {}", future_bytes);
+
+		eprintln!("saving {} bytes from reg1  {:x?}", old_offset, reg1.vec);
+		reg1 = X86u8x16Long0x11b::future_bytes(reg1, old_offset); // saved later
+		eprintln!("saved {:x?}", reg1.vec);
 		
-		// shift reg right by old offset, reg1 left by (16 - old offset - missing)
-		let no_shuffle_addr = SHUFFLE_MASK.as_ptr().offset(16);
-		// +ve offsets to no_shuffle_addr => shr
-		eprintln!("Shifting reg0 by {}, reg1 by {}",
-			  old_offset,
-			  (old_offset + missing) as isize  - 16);
+		// // panic!();	// this arm not tested yet!
+		
+		// // shift reg right by old offset, reg1 left by (16 - old offset - missing)
+		// let no_shuffle_addr = SHUFFLE_MASK.as_ptr().offset(16);
+		// // +ve offsets to no_shuffle_addr => shr
+		// eprintln!("Shifting reg0 by {}, reg1 by {}",
+		// 	  old_offset,
+		// 	  (old_offset + missing) as isize  - 16);
 
-		let rsh_addr = no_shuffle_addr.offset(old_offset as isize);
-		let lsh_addr = no_shuffle_addr.offset((old_offset + missing) as isize  - 16);
+		// let rsh_addr = no_shuffle_addr.offset(old_offset as isize);
+		// let lsh_addr = no_shuffle_addr.offset((old_offset + missing) as isize  - 16);
 
-		// do the shuffle
-		let rsh_mask = _mm_lddqu_si128(rsh_addr as *const std::arch::x86_64::__m128i);
-		let lsh_mask = _mm_lddqu_si128(lsh_addr as *const std::arch::x86_64::__m128i);
-		ret = X86u8x16Long0x11b { vec :_mm_or_si128 (
-		    _mm_shuffle_epi8(reg0.vec, rsh_mask),
-		    _mm_shuffle_epi8(reg1.vec, lsh_mask),
-		) };
+		// // do the shuffle
+		// let rsh_mask = _mm_lddqu_si128(rsh_addr as *const std::arch::x86_64::__m128i);
+		// let lsh_mask = _mm_lddqu_si128(lsh_addr as *const std::arch::x86_64::__m128i);
+		// ret = X86u8x16Long0x11b { vec :_mm_or_si128 (
+		//     _mm_shuffle_epi8(reg0.vec, rsh_mask),
+		//     _mm_shuffle_epi8(reg1.vec, lsh_mask),
+		// ) };
 	    } else {
 		ret = reg1;
 	    }
 	
 	    // update state and return
-	    self.rp   += 16;
+	    //self.rp   += 16;
 	    self.mods += 16;
-	    if self.mods == array_size {
+	    if self.mods >= array_size {
+		panic!();
 		self.mods -= array_size;
 		self.rp = 0;
 	    }
-	    self.reg = reg1;
+	    //self.reg = reg1;
 	}
 
 	eprintln!("returning {:x?}", ret.vec);
