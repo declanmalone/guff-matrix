@@ -252,11 +252,63 @@ struct X86u8x16Long0x11b {
     vec : __m128i,
 }
 
-// Add extra things here to help test intrinsics
-//impl X86u8x16Long0x11b {
+// #![feature(const_ptr_offset)]
 
-  //  fn 
-//}
+// Add extra things here to help test intrinsics
+impl X86u8x16Long0x11b {
+
+    // left shifting pushes values further into the future
+    unsafe fn left_shift(reg : Self, bytes : usize) -> Self {
+	// Making case of 0, 16 an error so that I can catch logic
+	// errors in the calling functions.
+	assert!(bytes > 0);
+	assert!(bytes < 16);
+
+	eprintln!("Shifting reg left by {}", bytes);
+
+	let NO_SHUFFLE_ADDR : *const u8 = SHUFFLE_MASK.as_ptr().offset(16);
+	let lsh_addr = NO_SHUFFLE_ADDR.offset(bytes as isize * -1);
+	let mask = _mm_lddqu_si128(lsh_addr as *const std::arch::x86_64::__m128i);
+	Self { vec :_mm_shuffle_epi8(reg.vec, mask) }
+    }
+
+    // right shifting brings future values closer to the present
+    unsafe fn right_shift(reg : Self, bytes : usize) -> Self {
+	// Making case of 0, 16 an error so that I can catch logic
+	// errors in the calling functions.
+	assert!(bytes > 0);
+	assert!(bytes < 16);
+
+	eprintln!("Shifting reg right by {}", bytes);
+
+	let NO_SHUFFLE_ADDR : *const u8 = SHUFFLE_MASK.as_ptr().offset(16);
+	let rsh_addr = NO_SHUFFLE_ADDR.offset(bytes as isize);
+	let mask = _mm_lddqu_si128(rsh_addr as *const std::arch::x86_64::__m128i);
+	Self { vec :_mm_shuffle_epi8(reg.vec, mask) }
+    }
+
+    unsafe fn combine_bytes(r0 : Self, r1: Self, bytes : usize) -> Self {
+
+	// r0 has `bytes` values in it, zeros elsewhere
+	// r1 has 16 values in it
+	assert!(bytes != 0);
+	assert!(bytes != 16);
+
+	eprintln!("Combining {} bytes of r0 ({:x?} with r1 ({:x?}",
+		  bytes, r0, r1);
+	
+	// calculate r0 | (r1 >> bytes)
+	Self { vec : _mm_or_si128 (r0.vec, Self::left_shift(r1, bytes).vec) }
+    }
+
+    unsafe fn future_bytes(r0 : Self, bytes : usize) -> Self {
+	// shift last `bytes` values of r0 to start
+	assert!(bytes != 0);
+	assert!(bytes != 16);
+	Self::right_shift(r0, 16 - bytes)
+    }
+	
+}
 
 unsafe fn test_alignr() {
 
@@ -614,6 +666,74 @@ const SHUFFLE_MASK : [u8; 48] = [
 //                                   E ---
 //
 //            ABCD EABC DEAB CDEA BCDE
+//
+// DEAB calculation shows full complexity...
+//
+// * have D left over from previous step
+// * reads off end of matrix
+// * has to start off reading again from A
+// * combines DEAB to give current SIMD answer
+// * stashes CD for next step
+//
+// The next one, CDEA is similar.
+//
+// Correct code hinges on modular arithmetic, particularly the value
+// of `position % matrix size`
+//
+// ABCD calculation:
+//
+// pos (0,4): no wrap
+// ra was 0, so full ABCD read returned
+//
+// EABC calculation:
+//
+// pos  (4,8) overflows giving new pos 8-5 = 3
+// ra was 0, so prev + E = E (null shuffle)
+// take 4-3 = 1 from end, 3 from new giving EABC
+// ra becomes 1, containing D
+//
+// DEAB calculation:
+//
+// pos (3,7) overflows giving new pos 7-5 = 2
+// ra was 1, so add D+E
+// take 4-2 = 2 from DE and 2 from new giving DEAB
+// ra becomes 4 - 2 = 2, containing CD
+//
+// CDEA calculation:
+//
+// pos (2,6) overflows giving new pos 6-5 = 1
+// ra was 2, so add CD + E giving CDE
+// take 4-1 = 3 from CDE and 1 from new, giving CDEA
+// ra becomes 4 - 1 = 3, containing BCD
+//
+// BCDE calculation:
+//
+// pos (1,5): overflows giving new pos 5-5 = 0
+// ra was 3, so add BCD + E
+// take 4 - 0 = 4 from BCDE and 0 from new, giving BCDE
+// ra becomes 4 - 0 = 4 containing ABCD
+//
+// ABCD calculation (restart, but this time with readahead of 4!)
+//
+// pos (0,4): no wrap
+// ra was 4, so add ABCD + null
+// take 4 - 4 = 0 from ABCD and 4 from new giving E---
+//
+// So, the last calculation isn't correct. It can be avoided by not
+// reading from the new stream in the final BCDE calculation of the
+// first cycle.
+//
+// ie, if we would ever combine 0 bytes from the new stream, we won't
+// read them in this step. So, ra will always be calculated mod 4.
+//
+// This makes sense because we then have two interlocking counters,
+// one mod 5 and one mod 4, and the cycle will continue back at the
+// start again after lcm(4,5) = byte 20 reads.
+
+
+// fn mod_advance(ra : usize, pos : usize, 
+
+
 
 
 impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
@@ -628,23 +748,87 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	// Stub. Interestingly, this would be sufficient for a 4x4 matrix
 	// return self.reg;
 
-	let reg0 = self.reg;
-	let mut reg1 : __m128i;
-	let ret  : __m128i;
-	let array_size = self.rows * self.cols;
-	let mut mods = self.mods;
+	let     reg0 = self.reg;
+	let mut reg1 : X86u8x16Long0x11b;
+	let mut reg2 : X86u8x16Long0x11b;
+	let     ret  : X86u8x16Long0x11b;
+	let     array_size = self.rows * self.cols;
+	let     mods = self.mods;
+	let mut new_mods = mods + 16;
 
 	assert!(mods < array_size);
 
+	// we will always read something from array
 	let addr_ptr = self.array.as_ptr().offset(self.rp as isize) as *const std::arch::x86_64::__m128i;
-	reg1 = _mm_lddqu_si128(addr_ptr);
+	reg1 = X86u8x16Long0x11b { vec :_mm_lddqu_si128(addr_ptr) };
 
 	let old_offset = self.ra;
+	let missing = 16 - old_offset;
 
+	// some bools to make logic clearer
+	let will_wrap_around : bool = new_mods >= array_size;
+	let had_readahead    : bool = old_offset != 0;
+	let will_read_again  : bool = will_wrap_around && (old_offset + missing != 16);
+
+	
+	if will_wrap_around {
+	    new_mods -= array_size;
+	    let from_new = new_mods;	  // from new read
+	    let from_end = 16 - new_mods; // from reg1
+	    let new_ra;
+
+	    eprintln!("[wrapping]");
+	    eprintln!("old_offset: {}", old_offset);
+	    eprintln!("from_new: {}", old_offset);
+	    eprintln!("from_end: {}", old_offset);
+	    
+	    // reg1 <- reg0 | reg1 << old_offset
+	    if old_offset == 0 {
+		// noop: reg1 <- reg1
+	    } else {
+		reg1 = X86u8x16Long0x11b::combine_bytes(reg0, reg1, old_offset);
+	    }
+
+	    // Now determine whether we need any more bytes from new
+	    // stream.
+
+	    self.rp = 0;
+	    if old_offset + from_end != 16 {
+
+		let missing = 16 - old_offset - from_end;
+		
+		// need to read from start
+		let addr_ptr = self.array
+		    .as_ptr()
+		    .offset(self.rp as isize) as *const std::arch::x86_64::__m128i;
+		let new = X86u8x16Long0x11b { vec : _mm_lddqu_si128(addr_ptr) };
+		self.rp += 16;
+
+		eprintln!("Will take {} bytes from new stream",  missing);
+
+		// append part of new stream to reg1
+		reg1 = X86u8x16Long0x11b::combine_bytes(reg1, new, missing);
+
+		// save unused part in reg2 (becomes new read-ahead)
+		self.reg = X86u8x16Long0x11b::right_shift(new, 16 - missing);
+		
+		// calculate updated ra
+		new_ra = 16 - missing;
+
+	    } else {
+		self.ra = 0
+	    }
+
+	    // save updated values and return
+	    self.mods = new_mods;
+	    return reg1;
+
+	} else {
+	
 	// This rework makes all the previously passing tests pass again.
 
 	// <= because there's no straddling and we can continue rp at zero again
-	if mods + 16 <= array_size {
+	// if mods + 16 <= array_size {
 
 	    // can safely read without wrap-around
 	    eprintln!("[not wrapping]");
@@ -670,10 +854,10 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 		// do the shuffle
 		let rsh_mask = _mm_lddqu_si128(rsh_addr as *const std::arch::x86_64::__m128i);
 		let lsh_mask = _mm_lddqu_si128(lsh_addr as *const std::arch::x86_64::__m128i);
-		ret =_mm_or_si128 (
+		ret = X86u8x16Long0x11b { vec :_mm_or_si128 (
 		    _mm_shuffle_epi8(reg0.vec, rsh_mask),
-		    _mm_shuffle_epi8(reg1,    lsh_mask),
-		);
+		    _mm_shuffle_epi8(reg1.vec, lsh_mask),
+		) };
 	    } else {
 		ret = reg1;
 	    }
@@ -685,126 +869,127 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 		self.mods -= array_size;
 		self.rp = 0;
 	    }
-	    self.reg = X86u8x16Long0x11b{vec : reg1};
-	    return X86u8x16Long0x11b{vec : ret};
+	    self.reg = reg1;
+	    return ret;
 	}
 
-	eprintln!("[wrapping]");
-	eprintln!("counter mod array size: {}", mods);
+	// eprintln!("[wrapping]");
+	// eprintln!("counter mod array size: {}", mods);
 
-	// Have to combine some of reg1 with a new stream starting
-	// from rp = 0
+	// // Have to combine some of reg1 with a new stream starting
+	// // from rp = 0
 
-	mods = mods + 16 - array_size;
+	// mods = mods + 16 - array_size;
 	
-	let mut missing  = mods;
-	eprintln!("missing {}", missing);
+	// let mut missing  = mods;
+	// eprintln!("missing {}", missing);
 
-	// assert_eq!(old_offset, 16 - mods);
+	// // assert_eq!(old_offset, 16 - mods);
 	
-	let addr_ptr = self.array.as_ptr() as *const std::arch::x86_64::__m128i;
-	let wrap = _mm_lddqu_si128(addr_ptr);
+	// let addr_ptr = self.array.as_ptr() as *const std::arch::x86_64::__m128i;
+	// let wrap = _mm_lddqu_si128(addr_ptr);
 
-	self.rp = 16;
+	// self.rp = 16;
 	
-	// Combine of reg1 and wrap giving new reg1
+	// // Combine of reg1 and wrap giving new reg1
 
-	eprintln!("Combining reg1 {:x?} and wrap {:x?}", reg1, wrap);
+	// eprintln!("Combining reg1 {:x?} and wrap {:x?}", reg1, wrap);
 	
 	
-	// shift reg1 right by 0,  left by (16 - old offset - missing)
-	let no_shuffle_addr = SHUFFLE_MASK.as_ptr().offset(16);
+	// // shift reg1 right by 0,  left by (16 - old offset - missing)
+	// let no_shuffle_addr = SHUFFLE_MASK.as_ptr().offset(16);
 
-	// +ve offsets to no_shuffle_addr => shr
-	eprintln!("Shifting reg by {}, reg1 by {}",
-		  old_offset,
-		  (old_offset + missing) as isize  - 16);
+	// // +ve offsets to no_shuffle_addr => shr
+	// eprintln!("Shifting reg by {}, reg1 by {}",
+	// 	  old_offset,
+	// 	  (old_offset + missing) as isize  - 16);
 
-	let rsh_addr = no_shuffle_addr.offset(old_offset as isize);
-	let lsh_addr = no_shuffle_addr.offset((old_offset + missing) as isize  - 16);
+	// let rsh_addr = no_shuffle_addr.offset(old_offset as isize);
+	// let lsh_addr = no_shuffle_addr.offset((old_offset + missing) as isize  - 16);
 
-	// do the shuffle
-	let rsh_mask = _mm_lddqu_si128(rsh_addr as *const std::arch::x86_64::__m128i);
-	let lsh_mask = _mm_lddqu_si128(lsh_addr as *const std::arch::x86_64::__m128i);
-	ret =_mm_or_si128 (
-	    _mm_shuffle_epi8(reg0.vec, rsh_mask),
-	    _mm_shuffle_epi8(reg1,     lsh_mask),
-	);
+	// // do the shuffle
+	// let rsh_mask = _mm_lddqu_si128(rsh_addr as *const std::arch::x86_64::__m128i);
+	// let lsh_mask = _mm_lddqu_si128(lsh_addr as *const std::arch::x86_64::__m128i);
+	// ret =_mm_or_si128 (
+	//     _mm_shuffle_epi8(reg0.vec, rsh_mask),
+	//     _mm_shuffle_epi8(reg1,     lsh_mask),
+	// );
 	
 
-	// ---
-
-	
-	// offset only potentially changes at end of matrix
-	let old_offset = self.ra;
-	eprintln!("old offset {}", old_offset);
-	let mut new_rp = self.rp;
-
+	// // ---
 
 	
-	// old wrap-around
-	if mods >= array_size {
+	// // offset only potentially changes at end of matrix
+	// let old_offset = self.ra;
+	// eprintln!("old offset {}", old_offset);
+	// let mut new_rp = self.rp;
 
-	    mods -= array_size;
-	    eprintln!("updated counter mod array size: {}", mods);
 
-	    missing = mods;
+	
+	// // old wrap-around
+	// if mods >= array_size {
+
+	//     mods -= array_size;
+	//     eprintln!("updated counter mod array size: {}", mods);
+
+	//     missing = mods;
 	    
-	    eprintln!("array_size {}, new_rp {}", array_size, new_rp);
-	    // missing = array_size - new_rp;
-	    // missing = (16 - (array_size + 16 - new_rp )) & 15;
+	//     eprintln!("array_size {}, new_rp {}", array_size, new_rp);
+	//     // missing = array_size - new_rp;
+	//     // missing = (16 - (array_size + 16 - new_rp )) & 15;
 
 	    
 
-	    assert!(missing < 16);
-	    new_rp = 0;
-	    self.ra = (16 - missing) & 15;
-	    eprintln!("Next offset: {}", self.ra);
-	} else {
+	//     assert!(missing < 16);
+	//     new_rp = 0;
+	//     self.ra = (16 - missing) & 15;
+	//     eprintln!("Next offset: {}", self.ra);
+	// } else {
 	    
-	}
+	// }
 
-	eprintln!("reg0 : {:x?}", reg0.vec);
-	eprintln!("reg1 : {:x?}", reg1);
+	// eprintln!("reg0 : {:x?}", reg0.vec);
+	// eprintln!("reg1 : {:x?}", reg1);
 	
-	// shuffle only if old offset != 0 (saves memory lookups for pshufb)
-	// but do 
-	//	if (old_offset != 0) || (missing != 0) {
-	
-	// shift reg right by old offset, reg1 left by (16 - old offset - missing)
-	let no_shuffle_addr = SHUFFLE_MASK.as_ptr().offset(16);
-	// +ve offsets to no_shuffle_addr => shr
-	eprintln!("Shifting reg by {}, reg1 by {}",
-		  old_offset,
-		  (old_offset + missing) as isize  - 16);
+	// // shuffle only if old offset != 0 (saves memory lookups for pshufb)
+	// // but do 
+	// //	if (old_offset != 0) || (missing != 0) {
 
-	let rsh_addr = no_shuffle_addr.offset(old_offset as isize);
-	let lsh_addr = no_shuffle_addr.offset((old_offset + missing) as isize  - 16);
+	// // shift reg right by old offset, reg1 left by (16 - old offset - missing)
+	// let no_shuffle_addr = SHUFFLE_MASK.as_ptr().offset(16);
+	// // +ve offsets to no_shuffle_addr => shr
+	// eprintln!("Shifting reg by {}, reg1 by {}",
+	// 	  old_offset,
+	// 	  (old_offset + missing) as isize  - 16);
 
-	// do the shuffle
-	let rsh_mask = _mm_lddqu_si128(rsh_addr as *const std::arch::x86_64::__m128i);
-	let lsh_mask = _mm_lddqu_si128(lsh_addr as *const std::arch::x86_64::__m128i);
-	ret =_mm_or_si128 (
-	    _mm_shuffle_epi8(reg0.vec, rsh_mask),
-	    _mm_shuffle_epi8(reg1,     lsh_mask),
-	);
-	
-	//	} else {
-	//	    ret = self.reg.vec;
-	//	}
+	// let rsh_addr = no_shuffle_addr.offset(old_offset as isize);
+	// let lsh_addr = no_shuffle_addr.offset((old_offset + missing) as isize  - 16);
 
-	// register, read pointer always advance
-	self.reg = X86u8x16Long0x11b{vec : reg1};
-	self.rp  = new_rp + 16;
-	self.mods = mods + 16;
+	// // do the shuffle
+	// let rsh_mask = _mm_lddqu_si128(rsh_addr as *const std::arch::x86_64::__m128i);
+	// let lsh_mask = _mm_lddqu_si128(lsh_addr as *const std::arch::x86_64::__m128i);
+	// ret =_mm_or_si128 (
+	//     _mm_shuffle_epi8(reg0.vec, rsh_mask),
+	//     _mm_shuffle_epi8(reg1,     lsh_mask),
+	// );
 	
-	eprintln!("RETURN VALUE ---->: {:x?}", ret);
-	X86u8x16Long0x11b{vec : ret}
+	// //	} else {
+	// //	    ret = self.reg.vec;
+	// //	}
+
+	// // register, read pointer always advance
+	// self.reg = X86u8x16Long0x11b{vec : reg1};
+	// self.rp  = new_rp + 16;
+	// self.mods = mods + 16;
+	
+	// eprintln!("RETURN VALUE ---->: {:x?}", ret);
+	// X86u8x16Long0x11b{vec : ret}
     }
     fn write_next(&mut self, _e : u8) {
 	unimplemented!()
     }
 }
+
 
 
 #[cfg(test)]
