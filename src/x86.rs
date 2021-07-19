@@ -346,6 +346,9 @@ impl Simd for X86u8x16Long0x11b {
 
     type E = u8;
     type V = __m128i;
+
+    fn zero_element() -> Self::E { 0u8.into() }
+    fn add_elements(a : Self::E, b : Self::E) -> Self::E { (a ^ b).into() }
     
     fn cross_product(a : Self, b : Self) -> Self {
 	unsafe {
@@ -830,7 +833,7 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 
 		eprintln!("Will take {} bytes from new stream",  missing);
 
-		if (have_bytes == 0) {
+		if have_bytes == 0 {
 		    reg1 = new
 		} else {   
 		    // append part of new stream to reg1
@@ -842,7 +845,7 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 		// save unused part as new read-ahead
 		let future_bytes = 16 - missing;
 		eprintln!("saving {} future bytes from new  {:x?}", future_bytes, new.vec);
-		if (future_bytes != 0) {
+		if future_bytes != 0 {
 		    self.reg = X86u8x16Long0x11b::future_bytes(new, future_bytes);
 		    eprintln!("saved {:x?}", self.reg.vec);
 		}
@@ -930,8 +933,8 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	    self.mods += 16;
 	    if self.mods >= array_size {
 		panic!();
-		self.mods -= array_size;
-		self.rp = 0;
+		// self.mods -= array_size;
+		// self.rp = 0;
 	    }
 	    self.reg = reg1;
 	}

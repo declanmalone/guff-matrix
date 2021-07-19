@@ -648,14 +648,22 @@ pub fn warm_simd_multiply<E,S>(xform : &impl WarmSimdMatrix<E,S>,
 
 // SIMD support, based on `simulator` module
 
+
+
 // This trait will be in main module and will have to be implemented
 // for each architecture
 pub trait Simd {
-    type E;			// elemental type, eg u8
+    type E : std::fmt::Display;			// elemental type, eg u8
     type V;			// vector type, eg [u8; 8]
 
     fn cross_product(a : Self, b : Self) -> Self;
-    unsafe fn sum_across_n(m0 : Self, m1 : Self, n : usize, off : usize) -> (Self::E, Self);
+    unsafe fn sum_across_n(m0 : Self, m1 : Self, n : usize, off : usize)
+			   -> (Self::E, Self);
+
+    // helper functions for working with elemental types. An
+    // alternative to using num_traits.
+    fn zero_element() -> Self::E;
+    fn add_elements(a : Self::E, b : Self::E) -> Self::E;
 }
 
 // For Matrix trait, I'm not going to distinguish between rowwise and
@@ -699,13 +707,117 @@ pub trait SimdMatrix<S : Simd> {
 }
 
 
-pub fn simd_warm_multiply<S : Simd>(
-    xform  : &impl SimdMatrix<S>,
-    input  : &impl SimdMatrix<S>,
-    output : &impl SimdMatrix<S>) {
+pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
+    xform  : &mut impl SimdMatrix<S>,
+    input  : &mut impl SimdMatrix<S>,
+    output : &mut impl SimdMatrix<S>) {
 
     
+// pub fn simsimd_warm_multiply(xform  : &mut SimSimdTransformMatrix,
+			     // input  : &mut SimSimdInputMatrix,
+			     // output : &mut OutputMatrix) {
+
+    // using into_iter() below moves ownership, so pull out any data
+    // we need first
+    let c = input.cols();
+    let n = xform.rows();
+    let k = xform.cols();
+
+    assert!(k > 0);
+    assert!(n > 0);
+    assert!(c > 0);
+    assert_eq!(input.rows(), k);
+    assert_eq!(output.cols(), c);
+    assert_eq!(output.rows(), n);
+
+    // searching for prime factors ... needs more work?
+    if k != 1 { assert_ne!(k, gcd(k,c)) }
+    
+    // set up iterators (no: just use matrix's read_next())
+    // let xiter = xform.into_iter();
+    // let iiter = input.into_iter();
+    // let field = guff::new_gf8(0x11b,0x1b);
+    
+    // algorithm not so trivial any more, but still quite simple
+    let mut dp_counter  = 0;
+    let mut sum         = S::zero_element();
+
+    // we don't have mstream any more since we handle it ourselves
+
+    // read ahead two products
+
+    let mut i0 : S;
+    let mut x0 : S;
+
+    // Question: can rustc determine that None is never returned?
+    x0 = xform.read_next();
+    i0 = input.read_next();
+    let mut m0 = S::cross_product(x0,i0);
+
+    x0  = xform.read_next();
+    i0  = input.read_next();
+    let mut m1  = S::cross_product(x0,i0);
+
+    let mut offset_mod_simd = 0;
+    let mut total_dps = 0;
+    let target = n * k * c;
+    
+    while total_dps < target {
+
+	// actual SIMD code: will get 8 values at a time
+	
+	// at top of loop we should always have m0, m1 full
+
+	// apportion parts of m0,m1 to sum
+
+	// handle case where k >= simd_width
+	while dp_counter + 8 <= k {
+	    let (part, new_m) = S::sum_across_n(m0,m1,8,offset_mod_simd);
+	    sum = S::add_elements(sum,part);
+	    m0 = new_m;
+	    x0  = xform.read_next();
+	    i0  = input.read_next();
+	    m1  = S::cross_product(x0,i0); // new m1
+	    dp_counter += 8;
+	    // offset_mod_simd unchanged
+	}
+	// above may have set dp_counter to k already.
+	if dp_counter < k {	       // If not, ...
+	    let want = k - dp_counter; // always strictly positive
+	    
+	    // eprintln!("Calling sum_across_n with m0 {:?}, m1 {:?}, n {}, offset {}",
+	    //      m0.vec, m1.vec, want, offset_mod_simd);
+	    let (part, new_m) = S::sum_across_n(m0,m1,want,offset_mod_simd);
+
+	    // eprintln!("got sum {}, new m {:?}", part, new_m.vec);
+
+	    sum = S::add_elements(sum,part);
+	    if offset_mod_simd + want >= 8 {
+		// consumed m0 and maybe some of m1 too
+		m0 = new_m;	// nothing left in old m0, so m0 <- m1
+		x0  = xform.read_next();
+		i0  = input.read_next();
+		m1  = S::cross_product(x0,i0); // new m1
+	    } else {
+		// got what we needed from m0 but it still has some
+		// unused data left in it
+		m0 = new_m;
+		// no new m1
+	    }
+	    // offset calculation the same for both arms above
+	    offset_mod_simd += want;
+	    if offset_mod_simd >= 8 { offset_mod_simd -= 8 }
+	}
+
+	// sum now has a full dot product
+	eprintln!("Sum: {}", sum);
+        output.write_next(sum);
+        sum = S::zero_element();
+        dp_counter = 0;
+	total_dps += 1;
+    }
 }
+
 
 
 #[cfg(test)]
