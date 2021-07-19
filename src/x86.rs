@@ -826,11 +826,14 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 mod tests {
 
     use super::*;
-    use guff::{GaloisField,new_gf8};
+
+    // if we ever need to use a reference multiply:
+    // use guff::{GaloisField,new_gf8};
 
     #[cfg(target_arch = "x86")]
     use std::arch::x86::*;
     #[cfg(target_arch = "x86_64")]
+    #[allow(unused_imports)]
     use std::arch::x86_64::*;
 
     #[test]
@@ -936,59 +939,59 @@ mod tests {
 	unsafe {
 
 	    // av[0] goes into low byte of lo
-	    let mut lo = _mm_lddqu_si128(av.as_ptr() as *const std::arch::x86_64::__m128i);
-	    let mut hi = _mm_lddqu_si128(bv.as_ptr() as *const std::arch::x86_64::__m128i);
+	    let lo = _mm_lddqu_si128(av.as_ptr() as *const std::arch::x86_64::__m128i);
+	    let hi = _mm_lddqu_si128(bv.as_ptr() as *const std::arch::x86_64::__m128i);
 
 	    // wrap the registers up in Simd type
-	    let mut lo = X86u8x16Long0x11b { vec : lo };
-	    let mut hi = X86u8x16Long0x11b { vec : hi };
+	    let lo = X86u8x16Long0x11b { vec : lo };
+	    let hi = X86u8x16Long0x11b { vec : hi };
 
 	    // simplest case 
-	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 16, 0);
+	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 16, 0);
 	    let expect : u8 = 0b0111_1111 ^ 0b1011_1111;
 	    eprintln!("expect {:x}", expect);
 	    assert_eq!(sum, expect);
 
 	    // n = power of two 
-	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 8, 0);
+	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 8, 0);
 	    assert_eq!(sum, 0b0111_1111);
 
 	    // simplest case, with offset 1
-	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 16, 1);
+	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 16, 1);
 	    let expect : u8 = 0b1111_1111 ^ 0b0011_1110;
 	    eprintln!("expect {:x}", expect);
 	    assert_eq!(sum, expect);
 
 	    // off = 0, n = 1
-	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 1, 0);
+	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 1, 0);
 	    assert_eq!(sum, 0b0000_0000);
 	    
 	    // off = 0, n = 2
-	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 2, 0);
+	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 2, 0);
 	    assert_eq!(sum, 0b0000_0001);
 
 	    // off = 0, n = 3
-	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 3, 0);
+	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 3, 0);
 	    assert_eq!(sum, 0b0000_0011);
 
 	    // off = 0, n = 4
-	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 4, 0);
+	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 4, 0);
 	    assert_eq!(sum, 0b0000_0111);
 
 	    // off = 0, n = 5
-	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 5, 0);
+	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 5, 0);
 	    assert_eq!(sum, 0b0000_1111);
 
 	    // off = 0, n = 6
-	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 6, 0);
+	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 6, 0);
 	    assert_eq!(sum, 0b0001_1111);
 
 	    // off = 0, n = 7
-	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 7, 0);
+	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 7, 0);
 	    assert_eq!(sum, 0b0011_1111);
 
 	    // off = 0, n = 15
-	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 15, 0);
+	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 15, 0);
 	    let expect : u8 = 0b0111_1111 ^ 0b1001_1111;
 	    eprintln!("expect {:x}", expect);
 	    assert_eq!(sum, expect);
@@ -1006,26 +1009,26 @@ mod tests {
 	unsafe {
 
 	    // av[0] goes into low byte of lo
-	    let mut lo = _mm_lddqu_si128(av.as_ptr() as *const std::arch::x86_64::__m128i);
-	    let mut hi = _mm_lddqu_si128(bv.as_ptr() as *const std::arch::x86_64::__m128i);
+	    let lo = _mm_lddqu_si128(av.as_ptr() as *const std::arch::x86_64::__m128i);
+	    let hi = _mm_lddqu_si128(bv.as_ptr() as *const std::arch::x86_64::__m128i);
 
 	    // wrap the registers up in Simd type
-	    let mut lo = X86u8x16Long0x11b { vec : lo };
-	    let mut hi = X86u8x16Long0x11b { vec : hi };
+	    let lo = X86u8x16Long0x11b { vec : lo };
+	    let hi = X86u8x16Long0x11b { vec : hi };
 
 	    // try different offsets, etc.
 	    
-	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 16, 3);
+	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 16, 3);
 	    let expect : u8 = 0b1111_1101 ^ 0b0011_1001;
 	    eprintln!("expect {:x}", expect);
 	    assert_eq!(sum, expect);
 
-	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 1, 3);
+	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 1, 3);
 	    let expect : u8 = 4;
 	    eprintln!("expect {:x}", expect);
 	    assert_eq!(sum, expect);
 
-	    let (sum,new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 2, 3);
+	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 2, 3);
 	    let expect : u8 = 4 + 8;
 	    eprintln!("expect {:x}", expect);
 	    assert_eq!(sum, expect);
@@ -1038,15 +1041,15 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_matrix_too_small() {
-	let mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(3, 5, true);
+	let _ = X86SimpleMatrix::<X86u8x16Long0x11b>::new(3, 5, true);
     }
 
     #[test]
     fn test_matrix_goldilocks() {
-	let mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(2, 8, true);
-	let mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(8, 2, true);
-	let mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(16, 1, true);
-	let mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(4, 4, true);
+	let _ = X86SimpleMatrix::<X86u8x16Long0x11b>::new(2, 8, true);
+	let _ = X86SimpleMatrix::<X86u8x16Long0x11b>::new(8, 2, true);
+	let _ = X86SimpleMatrix::<X86u8x16Long0x11b>::new(16, 1, true);
+	let _ = X86SimpleMatrix::<X86u8x16Long0x11b>::new(4, 4, true);
     }
 
     #[test]
