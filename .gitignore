@@ -12,3 +12,4 @@ Cargo.lock
 *~
 
 cube_*.s
+perf.data.*

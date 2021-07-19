@@ -119,8 +119,8 @@ pub unsafe fn vmul_p8x16(mut a : __m128i, b : __m128i, poly : u8) -> __m128i {
 #[inline(always)]
 pub unsafe fn vmul_p8_buffer(dest : &mut [u8], av : &[u8], bv : &[u8], poly : u8) {
 
-    assert_eq!(av.len(), bv.len());
-    assert_eq!(bv.len(), dest.len());
+    debug_assert_eq!(av.len(), bv.len());
+    debug_assert_eq!(bv.len(), dest.len());
 
     let bytes = av.len();
     if bytes & 15 != 0 {
@@ -262,8 +262,8 @@ impl X86u8x16Long0x11b {
     unsafe fn left_shift(reg : Self, bytes : usize) -> Self {
 	// Making case of 0, 16 an error so that I can catch logic
 	// errors in the calling functions.
-	assert!(bytes > 0);
-	assert!(bytes < 16);
+	debug_assert!(bytes > 0);
+	debug_assert!(bytes < 16);
 
 	// eprintln!("Shifting reg left by {}", bytes);
 
@@ -278,8 +278,8 @@ impl X86u8x16Long0x11b {
     unsafe fn right_shift(reg : Self, bytes : usize) -> Self {
 	// Making case of 0, 16 an error so that I can catch logic
 	// errors in the calling functions.
-	assert!(bytes > 0);
-	assert!(bytes < 16);
+	debug_assert!(bytes > 0);
+	debug_assert!(bytes < 16);
 
 	// eprintln!("Shifting reg right by {}", bytes);
 
@@ -294,8 +294,8 @@ impl X86u8x16Long0x11b {
 
 	// r0 has `bytes` values in it, zeros elsewhere
 	// r1 has 16 values in it
-	assert!(bytes != 0);
-	assert!(bytes != 16);
+	debug_assert!(bytes != 0);
+	debug_assert!(bytes != 16);
 
 	// eprintln!("Combining {} bytes of r0 ({:x?} with r1 ({:x?}",
 	//		  bytes, r0.vec, r1.vec);
@@ -306,8 +306,8 @@ impl X86u8x16Long0x11b {
 
     unsafe fn future_bytes(r0 : Self, bytes : usize) -> Self {
 	// shift last `bytes` values of r0 to start
-	assert!(bytes != 0);
-	assert!(bytes != 16);
+	debug_assert!(bytes != 0);
+	debug_assert!(bytes != 16);
 	Self::right_shift(r0, 16 - bytes)
     }
 	
@@ -362,159 +362,6 @@ impl Simd for X86u8x16Long0x11b {
 	    Self { vec : vmul_p8x16(a.vec, b.vec, 0x1b) }
 	}
     }
-    // renaming variable lo: current, hi: future readahead
-    #[target_feature(enable = "ssse3")]
-    //#[target_feature(enable = "4.1")]
-    //#[target_feature(enable = "sse41")]
-    unsafe fn sum_across_n_old(lo : Self, hi : Self, mut n : usize, off : usize)
-			   -> (Self::E, Self) {
-	// TODO: rewrite this using pshufb and masks
-	assert!((off < 16) && (n > 0) && (n <= 16));
-
-	// if we straddle, will return m1 (hi), otherwise m0 (lo)
-	let m = if off + n >= 16 { hi } else { lo };
-
-	// Abandoning the code below 'OK: alignr...'. It seems that
-	// Intel don't provide full vector rotates except for constant
-	// values. I'm going to have to use shuffle masks...
-
-	// Looking at the Arm intrinsics, it doesn't have it either. I
-	// guess that the circuitry required for doing arbitrary
-	// rotates on wide registers is too costly.
-
-	// So, I guess that both architectures do something like
-	// Altivec does...
-	//
-	// pshufb on Intel seems to work by:
-	//
-	// __m128i _mm_shuffle_epi8 (__m128i a, __m128i b)
-	//
-	// IF high bit of mask b is set, zero corresponding output
-	// element
-	// ELSE
-	// use lower 4 bits of b to select a byte from a
-	//
-	// My Altivec/PS3 code actually uses different scheme ... it
-	// uses shuffles to advance past already-consumed data (as
-	// above), but then uses maskb to set a number of bits from
-	// the start. (converting a 16-bit value into a 16-byte
-	// vector).	
-
-	// There's probably something similar for Intel?
-	// 
-
-	// This has turned out to be more complex than I thought. I
-	// might have to rethink the matrix multiply code. The point
-	// at which control passes here might have to be at a lower
-	// level, meaning that we do less work in the matrix code and
-	// more here.
-
-	// Actually, my sum across products is also in doubt. Ah, no,
-	// it's fine. We can still shift by a constant amount.
-
-	// eprintln!("Taking {} bytes starting at offset {}", n, off);
-	// eprintln!("lo vector: {:x?}", lo);
-	// eprintln!("hi vector: {:x?}", hi);
-	
-	// That gives me an idea... the following can be converted
-	// into binary searches. Hopefully, though, it compiles down
-	// to a computed goto (preferably adding a constant multiple
-	// to pc)
-	let mut c;
-	match off {
-	    0 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 0) },
-	    1 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 1) },
-	    2 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 2) },
-	    3 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 3) },
-	    4 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 4) },
-	    5 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 5) },
-	    6 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 6) },
-	    7 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 7) },
-	    8 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 8) },
-	    9 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 9) },
-	    10 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 10) },
-	    11 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 11) },
-	    12 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 12) },
-	    13 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 13) },
-	    14 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 14) },
-	    15 => { c = _mm_alignr_epi8 (hi.vec, lo.vec, 15) },
-	    _ => { c = hi.vec },	// unreachable, but satisfy compiler
-	}
-
-	// eprintln!("c after alignr: {:x?}", c); 
-	
-	// That only gets rid of the first `off` bytes. We also then
-	// have to select the next n bytes to sum together.
-
-	// Each pair of shl, shr below removes some number of high
-	// bytes from the register (shl), then moves everything back
-	// to the original position (shr)
-	//
-	// We repeatedly:
-	// * clear some number of high bytes from readahead
-	// * xor the top half of the remaining bytes into the bottom
-	// * halve the number of bytes
-	//
-	// Eventually, we should end up with the correct sum in
-	// the low byte.
-
-	// Actually, the shr is not needed? If we accumulate in
-	// the high byte, perhaps?
-	//
-	
-	// Xor across n byte elements of a 128-bit simd register:
-	// * Masks out bytes above n using shifts,
-	// * xors by half remaining step size
-	// * log_2 (max_n) steps
-        match n {
-            16 => {},
-            15 => { c = _mm_srli_si128(_mm_slli_si128(c, 1), 1) },
-            14 => { c = _mm_srli_si128(_mm_slli_si128(c, 2), 2) },
-            13 => { c = _mm_srli_si128(_mm_slli_si128(c, 3), 3) },
-            12 => { c = _mm_srli_si128(_mm_slli_si128(c, 4), 4) },
-            11 => { c = _mm_srli_si128(_mm_slli_si128(c, 5), 5) },
-            10 => { c = _mm_srli_si128(_mm_slli_si128(c, 6), 6) },
-            9  => { c = _mm_srli_si128(_mm_slli_si128(c, 7), 7) },
-            _  => { c = _mm_srli_si128(_mm_slli_si128(c, 8), 8) },
-        }
-        if n > 8 { n = 8 }
-        c = _mm_xor_si128(c, _mm_srli_si128(c, 8));
-        // eprintln!("c after first xor: {:x?}", c);
-
-        // eprintln!("n is now {}", n);
-        match n {
-            8 => { },
-            7 => { c = _mm_srli_si128(_mm_slli_si128(c, 9), 9) },
-            6 => { c = _mm_srli_si128(_mm_slli_si128(c, 10), 10) },
-            5 => { c = _mm_srli_si128(_mm_slli_si128(c, 11), 11) },
-            _ => { c = _mm_srli_si128(_mm_slli_si128(c, 12), 12) },
-        }
-        if n > 4 { n = 4 }
-        c = _mm_xor_si128(c, _mm_srli_si128(c, 4));
-        // eprintln!("c after second xor: {:x?}", c);
-
-        // eprintln!("n is now {}", n);
-        match n {
-            4 => { },
-            3 => { c = _mm_srli_si128(_mm_slli_si128(c, 13), 13) },
-            _ => { c = _mm_srli_si128(_mm_slli_si128(c, 14), 14) },
-        }
-        if n > 2 { n = 2 }
-        c = _mm_xor_si128(c, _mm_srli_si128(c, 2));
-        // eprintln!("c after third xor: {:x?}", c);
-
-        // eprintln!("n is now {}", n);
-        match n {
-            2 => { },
-            _ => { c = _mm_slli_si128(_mm_srli_si128(c, 15), 15) },
-        }
-        c = _mm_xor_si128(c, _mm_srli_si128(c, 1));
-        // eprintln!("c after fourth xor: {:x?}", c);
-        let extracted : u8 = (_mm_extract_epi8(c, 0) & 255) as u8;
-        // eprintln!("Extracting low byte: {:x}", extracted);
-        return (extracted, m);
-        
-    }
 
     // rewrite old code to use pshufb and masks
 
@@ -529,7 +376,7 @@ impl Simd for X86u8x16Long0x11b {
     #[inline(always)]
     unsafe fn sum_across_n(lo : Self, hi : Self, mut n : usize, off : usize)
 			   -> (Self::E, Self) {
-	assert!((off < 16) && (n > 0) && (n <= 16));
+	debug_assert!((off < 16) && (n > 0) && (n <= 16));
 	// if we straddle, will return m1 (hi), otherwise m0 (lo)
 	let m = if off + n >= 16 { hi } else { lo };
 
@@ -666,13 +513,6 @@ impl X86SimpleMatrix<X86u8x16Long0x11b> {
 	self.array[0..size].copy_from_slice(data);
 
 	unsafe {
-	    // Set up read-ahead register based on new data
-	    // let array_ptr = self.array.as_ptr() as *const std::arch::x86_64::__m128i;
-
-	    // risk an aligned load (use repr align on struct if it fails)
-	    // self.reg = X86u8x16Long0x11b{vec : _mm_load_si128(array_ptr)};
-	    
-	    // read-ahead pointer = simd width, since we have read one full register
 	    self.reg = X86u8x16Long0x11b { vec :_mm_setzero_si128() };
 	}
 
@@ -788,10 +628,23 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
     fn cols(&self) -> usize { self.cols }
     fn is_rowwise(&self) -> bool { self.is_rowwise }
 
+    // this needs more work
     unsafe fn read_next(&mut self) -> X86u8x16Long0x11b {
-	// Stub. Interestingly, this would be sufficient for a 4x4 matrix
-	// return self.reg;
-
+	// loading up reg, rows, cols and mods every time might be a
+	// bit of a performance bottleneck.
+	//
+	// I'm not sure about how to get line-by-line profiling info.
+	//
+	// One thing that I can do is to have these values passed in
+	// by the caller and use debug_assert_eq!() to compare them
+	// with the proper values (in the case of rows, cols, anyway;
+	// we may decide not to store reg and mods).
+	//
+	// The problem with that (especially for reg) is that other
+	// matrix implementations may have other ideas about what
+	// state is required. For example, a matrix that implements
+	// read_next() using register-backed state will have to have 1
+	// or more internal registers...
 	let     reg0 = self.reg;
 	let mut reg1 : X86u8x16Long0x11b;
 	let mut reg2 : X86u8x16Long0x11b;
@@ -806,7 +659,7 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	
 	// eprintln!("\n\nmods was {}, new_mods is {}", mods, new_mods);
 	
-	assert!(mods < array_size);
+	debug_assert!(mods < array_size);
 
 	// we will always read something from array
 	let addr_ptr = self.array.as_ptr().offset(self.rp as isize) as *const std::arch::x86_64::__m128i;
@@ -823,9 +676,8 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	let missing = 16 - old_offset;
 
 	// some bools to make logic clearer
-	let will_wrap_around : bool = (new_mods + 15 >= array_size + 15) || (new_mods >= array_size);
+	let will_wrap_around : bool = new_mods >= array_size;
 	let had_readahead    : bool = old_offset != 0;
-	let will_read_again  : bool = will_wrap_around && (old_offset + missing != 16);
 
 	if will_wrap_around {
 	    // eprintln!("\n[wrapping]\n");
@@ -840,13 +692,12 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 		want_bytes
 	    } else {
 		new_mods
-	    }; // from reg1
+	    };
 	    // eprintln!("from_new: {}", from_new);
 
 	    let from_end = want_bytes - from_new;	  // from new read
 	    // eprintln!("from_end: {}", from_end);
 
-	    
 	    // reg1 <- reg0 | reg1 << old_offset
 	    if old_offset == 0 {
 		// noop: reg1 <- reg1
@@ -920,7 +771,7 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	    // if we have no partial reads from before, must merge
 	    // that with this and save new remainder
 
-	    if old_offset != 0 {
+	    if had_readahead {
 
 		// eprintln!("combining reg0 {:x?}, reg1 {:x?}", reg0.vec, reg1.vec);
 		ret = X86u8x16Long0x11b::combine_bytes(reg0, reg1, old_offset);
@@ -950,11 +801,7 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	    // update state and return
 	    //self.rp   += 16;
 	    self.mods += 16;
-	    if self.mods >= array_size {
-		panic!();
-		// self.mods -= array_size;
-		// self.rp = 0;
-	    }
+	    debug_assert!(self.mods < array_size);
 	    self.reg = reg1;
 	}
 

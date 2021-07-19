@@ -709,8 +709,6 @@ pub trait Simd {
     fn cross_product(a : Self, b : Self) -> Self;
     unsafe fn sum_across_n(m0 : Self, m1 : Self, n : usize, off : usize)
 			   -> (Self::E, Self);
-    unsafe fn sum_across_n_old(m0 : Self, m1 : Self, n : usize, off : usize)
-			   -> (Self::E, Self);
 
     // helper functions for working with elemental types. An
     // alternative to using num_traits.
@@ -779,7 +777,7 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
     assert_eq!(output.rows(), n);
 
     // searching for prime factors ... needs more work?
-    if k != 1 { assert_ne!(k, gcd(k,c)) }
+    if k != 1 { debug_assert_ne!(k, gcd(k,c)) }
     
     // algorithm not so trivial any more, but still quite simple
     let mut dp_counter  = 0;

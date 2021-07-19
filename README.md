@@ -79,3 +79,19 @@ I'll also use this to prove that the algorithm works as intended.
 - [x] Write and test simulation of non SIMD algorithm
 
 - [x] Write and test simulation of SIMD algorithm
+
+
+## Matrix multiplication
+
+Using the simd version of the field multiplication routine, I now
+have:
+
+- [x] SIMD version of x86 matrix multiply
+
+It needs a fair bit of work, since it's currently slower than the
+reference version. See `benches/vector_mul.rs` for details. To run
+that with all relevant optimisations, you might need to turn on some
+compile flags:
+
+    RUSTFLAGS="-O -C target-cpu=native -C target-feature=+ssse3,+sse4.1,+sse4.2,+avx" cargo bench -q "matrix" 
+
