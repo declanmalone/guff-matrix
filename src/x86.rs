@@ -756,6 +756,10 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	let     mods = self.mods;
 	let mut new_mods = mods + 16;
 
+	// another rework needed. 
+	//
+	// move all wrap-around to top
+	
 	eprintln!("\n\nmods was {}, new_mods is {}", mods, new_mods);
 	
 	assert!(mods < array_size);
@@ -775,7 +779,7 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	let missing = 16 - old_offset;
 
 	// some bools to make logic clearer
-	let will_wrap_around : bool = new_mods >= array_size;
+	let will_wrap_around : bool = (new_mods + 15 >= array_size + 15) || (new_mods >= array_size);
 	let had_readahead    : bool = old_offset != 0;
 	let will_read_again  : bool = will_wrap_around && (old_offset + missing != 16);
 
@@ -880,10 +884,17 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 
 		// save unused part as new read-ahead
 
+		let future_bytes;
+
 		// OK. We may have got fewer than 16 bytes on the
 		// read. The logic that I'm using for when wrap-around
 		// happens lets that happen.
-		let future_bytes = if deficit != 0 { old_offset - deficit } else { old_offset };
+		if deficit != 0 {
+		    future_bytes = old_offset - deficit;
+		    self.rp = 0;
+		} else {
+		    future_bytes = old_offset;
+		}
 		self.ra = future_bytes;
 		eprintln!("future_bytes is {}", future_bytes);
 
@@ -922,7 +933,7 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 		self.mods -= array_size;
 		self.rp = 0;
 	    }
-	    //self.reg = reg1;
+	    self.reg = reg1;
 	}
 
 	eprintln!("returning {:x?}", ret.vec);
@@ -1395,9 +1406,9 @@ mod tests {
 	unsafe {
 
 	    // do this in a loop that tests all pathways in code
-	    // lcm(21,16) = 21 * 16
+	    // lcm(21,16) = 21 * 16. Do +1 to check proper restart
 
-	    for _ in 0..21*16 {
+	    for _ in 0..21*16 + 1 {
 	    
 		// load up expected value
 		let addr = array_ptr.offset(index) as *const std::arch::x86_64::__m128i;
