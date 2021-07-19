@@ -267,8 +267,8 @@ impl X86u8x16Long0x11b {
 
 	// eprintln!("Shifting reg left by {}", bytes);
 
-	let NO_SHUFFLE_ADDR : *const u8 = SHUFFLE_MASK.as_ptr().offset(16);
-	let lsh_addr = NO_SHUFFLE_ADDR.offset(bytes as isize * -1);
+	let no_shuffle_addr : *const u8 = SHUFFLE_MASK.as_ptr().offset(16);
+	let lsh_addr = no_shuffle_addr.offset(bytes as isize * -1);
 	let mask = _mm_lddqu_si128(lsh_addr as *const std::arch::x86_64::__m128i);
 	Self { vec :_mm_shuffle_epi8(reg.vec, mask) }
     }
@@ -283,8 +283,8 @@ impl X86u8x16Long0x11b {
 
 	// eprintln!("Shifting reg right by {}", bytes);
 
-	let NO_SHUFFLE_ADDR : *const u8 = SHUFFLE_MASK.as_ptr().offset(16);
-	let rsh_addr = NO_SHUFFLE_ADDR.offset(bytes as isize);
+	let no_shuffle_addr : *const u8 = SHUFFLE_MASK.as_ptr().offset(16);
+	let rsh_addr = no_shuffle_addr.offset(bytes as isize);
 	let mask = _mm_lddqu_si128(rsh_addr as *const std::arch::x86_64::__m128i);
 	Self { vec :_mm_shuffle_epi8(reg.vec, mask) }
     }
@@ -313,6 +313,7 @@ impl X86u8x16Long0x11b {
 	
 }
 
+#[allow(dead_code)]
 unsafe fn test_alignr() {
 
     // stored in memory with lowest value first
@@ -321,8 +322,8 @@ unsafe fn test_alignr() {
     let bv = [ 16u8, 17, 18, 19, 20, 21, 22, 23,
 	       24, 25, 26, 27, 28, 29, 30, 31];
     
-    let mut lo = _mm_lddqu_si128(av.as_ptr() as *const std::arch::x86_64::__m128i);
-    let mut hi = _mm_lddqu_si128(bv.as_ptr() as *const std::arch::x86_64::__m128i);
+    let lo = _mm_lddqu_si128(av.as_ptr() as *const std::arch::x86_64::__m128i);
+    let hi = _mm_lddqu_si128(bv.as_ptr() as *const std::arch::x86_64::__m128i);
 
     let c = _mm_alignr_epi8 (hi, lo, 31);
 
@@ -374,8 +375,9 @@ impl Simd for X86u8x16Long0x11b {
     //    updated vector.
 
     #[inline(always)]
-    unsafe fn sum_across_n(lo : Self, hi : Self, mut n : usize, off : usize)
+    unsafe fn sum_across_n(lo : Self, hi : Self, n : usize, off : usize)
 			   -> (Self::E, Self) {
+	// usually only called internally, so safe to use debug_assert
 	debug_assert!((off < 16) && (n > 0) && (n <= 16));
 	// if we straddle, will return m1 (hi), otherwise m0 (lo)
 	let m = if off + n >= 16 { hi } else { lo };
@@ -647,7 +649,6 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	// or more internal registers...
 	let     reg0 = self.reg;
 	let mut reg1 : X86u8x16Long0x11b;
-	let mut reg2 : X86u8x16Long0x11b;
 	let     ret  : X86u8x16Long0x11b;
 	let     array_size = self.rows * self.cols;
 	let     mods = self.mods;
@@ -673,7 +674,6 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	// eprintln!("Deficit is {}", deficit);
 	
 	let old_offset = self.ra;
-	let missing = 16 - old_offset;
 
 	// some bools to make logic clearer
 	let will_wrap_around : bool = new_mods >= array_size;
@@ -765,8 +765,6 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	    // can safely read without wrap-around
 	    // eprintln!("\n[not wrapping]\n");
 	    // eprintln!("old_offset: {}", old_offset);
-
-	    let missing = 16 - old_offset;
 
 	    // if we have no partial reads from before, must merge
 	    // that with this and save new remainder
