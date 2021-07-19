@@ -248,7 +248,7 @@ pub unsafe fn vector_cube_p8x16(a : __m128i, poly : u8) -> __m128i {
 use super::{Simd,SimdMatrix};
 
 #[derive(Clone,Copy,Debug)]
-struct X86u8x16Long0x11b {
+pub struct X86u8x16Long0x11b {
     vec : __m128i,
 }
 
@@ -346,6 +346,7 @@ impl Simd for X86u8x16Long0x11b {
 
     type E = u8;
     type V = __m128i;
+    const SIMD_BYTES : usize = 16;
 
     fn zero_element() -> Self::E { 0u8.into() }
     fn add_elements(a : Self::E, b : Self::E) -> Self::E { (a ^ b).into() }
@@ -578,13 +579,13 @@ pub struct X86SimpleMatrix<S : Simd> {
     // to implement regular matrix stuff
     rows : usize,
     cols : usize,
-    array : Vec<u8>,
+    pub array : Vec<u8>,
     is_rowwise : bool,
 }
 
 impl X86SimpleMatrix<X86u8x16Long0x11b> {
 
-    fn new(rows : usize, cols : usize, is_rowwise : bool) -> Self {
+    pub fn new(rows : usize, cols : usize, is_rowwise : bool) -> Self {
 	if rows * cols < 16 {
 	    panic!("This SIMD matrix implementation can't handle rows * cols < 16 bytes");
 	}
@@ -611,7 +612,7 @@ impl X86SimpleMatrix<X86u8x16Long0x11b> {
 	}
     }
 
-    fn fill(&mut self, data : &[u8]) {
+    pub fn fill(&mut self, data : &[u8]) {
 	let size = self.size();
 	if data.len() != size {
 	    panic!("Supplied data != matrix size");
@@ -635,7 +636,7 @@ impl X86SimpleMatrix<X86u8x16Long0x11b> {
     }
 
     // convenience
-    fn new_with_data(rows : usize, cols : usize, is_rowwise : bool,
+    pub fn new_with_data(rows : usize, cols : usize, is_rowwise : bool,
 		     data : &[u8]) -> Self {
 	let mut this = Self::new(rows, cols, is_rowwise);
 	this.fill(data);
@@ -1054,8 +1055,17 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	// eprintln!("RETURN VALUE ---->: {:x?}", ret);
 	// X86u8x16Long0x11b{vec : ret}
     }
-    fn write_next(&mut self, _e : u8) {
-	unimplemented!()
+    fn write_next(&mut self, e : u8) {
+
+	let or = self.or;
+	let oc = self.oc;
+
+	let index = self.rowcol_to_index(or, oc);
+	self.array[index] = e;
+
+	self.or = if or + 1 < self.rows { or + 1 } else { 0 };
+	self.oc = if oc + 1 < self.cols { oc + 1 } else { 0 };
+
     }
 }
 

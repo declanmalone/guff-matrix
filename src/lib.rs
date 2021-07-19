@@ -655,6 +655,7 @@ pub fn warm_simd_multiply<E,S>(xform : &impl WarmSimdMatrix<E,S>,
 pub trait Simd {
     type E : std::fmt::Display;			// elemental type, eg u8
     type V;			// vector type, eg [u8; 8]
+    const SIMD_BYTES : usize;
 
     fn cross_product(a : Self, b : Self) -> Self;
     unsafe fn sum_across_n(m0 : Self, m1 : Self, n : usize, off : usize)
@@ -697,10 +698,12 @@ pub trait SimdMatrix<S : Simd> {
 
     // Convenience stuff
     fn rowcol_to_index(&self, r : usize, c : usize) -> usize {
+	eprintln!("r: {}, c: {}, is_rowwise {}; rows: {}, cols: {}",
+		  r, c, self.is_rowwise(), self.rows(), self.cols() );
 	if self.is_rowwise() {
-	    r * self.rows() + c
+	    r * self.cols() + c
 	} else {
-	    r + c * self.cols()
+	    r + c * self.rows()
 	}
     }
     fn size(&self) -> usize { self.rows() * self.cols() }
@@ -712,13 +715,7 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
     input  : &mut impl SimdMatrix<S>,
     output : &mut impl SimdMatrix<S>) {
 
-    
-// pub fn simsimd_warm_multiply(xform  : &mut SimSimdTransformMatrix,
-			     // input  : &mut SimSimdInputMatrix,
-			     // output : &mut OutputMatrix) {
-
-    // using into_iter() below moves ownership, so pull out any data
-    // we need first
+    // dimension tests
     let c = input.cols();
     let n = xform.rows();
     let k = xform.cols();
@@ -733,23 +730,17 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
     // searching for prime factors ... needs more work?
     if k != 1 { assert_ne!(k, gcd(k,c)) }
     
-    // set up iterators (no: just use matrix's read_next())
-    // let xiter = xform.into_iter();
-    // let iiter = input.into_iter();
-    // let field = guff::new_gf8(0x11b,0x1b);
-    
     // algorithm not so trivial any more, but still quite simple
     let mut dp_counter  = 0;
     let mut sum         = S::zero_element();
-
+    let simd_width = S::SIMD_BYTES;
+    
     // we don't have mstream any more since we handle it ourselves
 
     // read ahead two products
-
     let mut i0 : S;
     let mut x0 : S;
 
-    // Question: can rustc determine that None is never returned?
     x0 = xform.read_next();
     i0 = input.read_next();
     let mut m0 = S::cross_product(x0,i0);
@@ -764,21 +755,20 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
     
     while total_dps < target {
 
-	// actual SIMD code: will get 8 values at a time
-	
 	// at top of loop we should always have m0, m1 full
 
 	// apportion parts of m0,m1 to sum
 
 	// handle case where k >= simd_width
-	while dp_counter + 8 <= k {
-	    let (part, new_m) = S::sum_across_n(m0,m1,8,offset_mod_simd);
+	while dp_counter + simd_width <= k {
+	    let (part, new_m)
+		= S::sum_across_n(m0,m1,simd_width,offset_mod_simd);
 	    sum = S::add_elements(sum,part);
 	    m0 = new_m;
 	    x0  = xform.read_next();
 	    i0  = input.read_next();
 	    m1  = S::cross_product(x0,i0); // new m1
-	    dp_counter += 8;
+	    dp_counter += simd_width;
 	    // offset_mod_simd unchanged
 	}
 	// above may have set dp_counter to k already.
@@ -792,7 +782,7 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
 	    // eprintln!("got sum {}, new m {:?}", part, new_m.vec);
 
 	    sum = S::add_elements(sum,part);
-	    if offset_mod_simd + want >= 8 {
+	    if offset_mod_simd + want >= simd_width {
 		// consumed m0 and maybe some of m1 too
 		m0 = new_m;	// nothing left in old m0, so m0 <- m1
 		x0  = xform.read_next();
@@ -806,7 +796,9 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
 	    }
 	    // offset calculation the same for both arms above
 	    offset_mod_simd += want;
-	    if offset_mod_simd >= 8 { offset_mod_simd -= 8 }
+	    if offset_mod_simd >= simd_width {
+		offset_mod_simd -= simd_width
+	    }
 	}
 
 	// sum now has a full dot product
@@ -824,7 +816,9 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
 mod tests {
 
     use super::*;
-
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    use super::x86::*;
+    
     #[test]
     fn all_primes_lcm() {
 	assert_eq!(lcm(2,7), 2 * 7);
@@ -925,4 +919,39 @@ mod tests {
     // 	assert_eq!(the_struct.xptr, 1);
     // }
 
+    #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    // test taken from simulator.rs
+    fn simd_identity_k9_multiply_colwise() {
+	unsafe {
+	    let identity = [
+		1,0,0, 0,0,0, 0,0,0,
+		0,1,0, 0,0,0, 0,0,0,
+		0,0,1, 0,0,0, 0,0,0,
+		0,0,0, 1,0,0, 0,0,0,
+		0,0,0, 0,1,0, 0,0,0,
+		0,0,0, 0,0,1, 0,0,0,
+		0,0,0, 0,0,0, 1,0,0,
+		0,0,0, 0,0,0, 0,1,0,
+		0,0,0, 0,0,0, 0,0,1,
+	    ];
+	    let mut transform =	// mut because of iterator
+		X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,9,true);
+	    transform.fill(&identity[..]);
+
+	    // 17 is coprime to 9
+	    let mut input =
+		X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,17,false);
+	    let vec : Vec<u8> = (1u8..=9 * 17).collect();
+	    input.fill(&vec[..]);
+
+	    let mut output =
+		X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,17,false);
+
+	    // works if output is stored in colwise format
+	    simd_warm_multiply(&mut transform, &mut input, &mut output);
+	    // array has padding, so don't compare that
+	    assert_eq!(output.array[0..9*17], vec);
+	}
+    }
 }
