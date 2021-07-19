@@ -660,6 +660,8 @@ pub trait Simd {
     fn cross_product(a : Self, b : Self) -> Self;
     unsafe fn sum_across_n(m0 : Self, m1 : Self, n : usize, off : usize)
 			   -> (Self::E, Self);
+    unsafe fn sum_across_n_old(m0 : Self, m1 : Self, n : usize, off : usize)
+			   -> (Self::E, Self);
 
     // helper functions for working with elemental types. An
     // alternative to using num_traits.
