@@ -698,8 +698,8 @@ pub trait SimdMatrix<S : Simd> {
 
     // Convenience stuff
     fn rowcol_to_index(&self, r : usize, c : usize) -> usize {
-	eprintln!("r: {}, c: {}, is_rowwise {}; rows: {}, cols: {}",
-		  r, c, self.is_rowwise(), self.rows(), self.cols() );
+	// eprintln!("r: {}, c: {}, is_rowwise {}; rows: {}, cols: {}",
+	//  r, c, self.is_rowwise(), self.rows(), self.cols() );
 	if self.is_rowwise() {
 	    r * self.cols() + c
 	} else {
@@ -802,7 +802,7 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
 	}
 
 	// sum now has a full dot product
-	eprintln!("Sum: {}", sum);
+	// eprintln!("Sum: {}", sum);
         output.write_next(sum);
         sum = S::zero_element();
         dp_counter = 0;

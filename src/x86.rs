@@ -264,7 +264,7 @@ impl X86u8x16Long0x11b {
 	assert!(bytes > 0);
 	assert!(bytes < 16);
 
-	eprintln!("Shifting reg left by {}", bytes);
+	// eprintln!("Shifting reg left by {}", bytes);
 
 	let NO_SHUFFLE_ADDR : *const u8 = SHUFFLE_MASK.as_ptr().offset(16);
 	let lsh_addr = NO_SHUFFLE_ADDR.offset(bytes as isize * -1);
@@ -279,7 +279,7 @@ impl X86u8x16Long0x11b {
 	assert!(bytes > 0);
 	assert!(bytes < 16);
 
-	eprintln!("Shifting reg right by {}", bytes);
+	// eprintln!("Shifting reg right by {}", bytes);
 
 	let NO_SHUFFLE_ADDR : *const u8 = SHUFFLE_MASK.as_ptr().offset(16);
 	let rsh_addr = NO_SHUFFLE_ADDR.offset(bytes as isize);
@@ -294,8 +294,8 @@ impl X86u8x16Long0x11b {
 	assert!(bytes != 0);
 	assert!(bytes != 16);
 
-	eprintln!("Combining {} bytes of r0 ({:x?} with r1 ({:x?}",
-		  bytes, r0.vec, r1.vec);
+	// eprintln!("Combining {} bytes of r0 ({:x?} with r1 ({:x?}",
+	//		  bytes, r0.vec, r1.vec);
 	
 	// calculate r0 | (r1 >> bytes)
 	Self { vec : _mm_or_si128 (r0.vec, Self::left_shift(r1, bytes).vec) }
@@ -764,7 +764,7 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	//
 	// move all wrap-around to top
 	
-	eprintln!("\n\nmods was {}, new_mods is {}", mods, new_mods);
+	// eprintln!("\n\nmods was {}, new_mods is {}", mods, new_mods);
 	
 	assert!(mods < array_size);
 
@@ -777,7 +777,7 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	if self.rp >= array_size && new_mods < array_size {
 	    deficit = self.rp - array_size;
 	}
-	eprintln!("Deficit is {}", deficit);
+	// eprintln!("Deficit is {}", deficit);
 	
 	let old_offset = self.ra;
 	let missing = 16 - old_offset;
@@ -788,30 +788,30 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	let will_read_again  : bool = will_wrap_around && (old_offset + missing != 16);
 
 	if will_wrap_around {
-	    eprintln!("\n[wrapping]\n");
+	    // eprintln!("\n[wrapping]\n");
 	    new_mods -= array_size;
-	    eprintln!("new mods {}", new_mods);
+	    // eprintln!("new mods {}", new_mods);
 
 	    let want_bytes = 16 - old_offset;
-	    eprintln!("old_offset: {}", old_offset);
-	    eprintln!("want_bytes: {}", want_bytes);
+	    // eprintln!("old_offset: {}", old_offset);
+	    // eprintln!("want_bytes: {}", want_bytes);
 	    
 	    let from_new = if want_bytes < new_mods {
 		want_bytes
 	    } else {
 		new_mods
 	    }; // from reg1
-	    eprintln!("from_new: {}", from_new);
+	    // eprintln!("from_new: {}", from_new);
 
 	    let from_end = want_bytes - from_new;	  // from new read
-	    eprintln!("from_end: {}", from_end);
+	    // eprintln!("from_end: {}", from_end);
 
 	    
 	    // reg1 <- reg0 | reg1 << old_offset
 	    if old_offset == 0 {
 		// noop: reg1 <- reg1
 	    } else {
-		eprintln!("combining reg0, reg1");
+		// eprintln!("combining reg0, reg1");
 		reg1 = X86u8x16Long0x11b::combine_bytes(reg0, reg1, old_offset);
 	    }
 
@@ -819,7 +819,7 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	    // stream.
 
 	    let have_bytes = old_offset + from_end;
-	    eprintln!("have_bytes is {}", have_bytes);
+	    // eprintln!("have_bytes is {}", have_bytes);
 	    self.rp = 0;
 	    if have_bytes != 16 {
 
@@ -832,23 +832,23 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 		let new = X86u8x16Long0x11b { vec : _mm_lddqu_si128(addr_ptr) };
 		self.rp += 16;
 
-		eprintln!("Will take {} bytes from new stream",  missing);
+		// eprintln!("Will take {} bytes from new stream",  missing);
 
 		if have_bytes == 0 {
 		    reg1 = new
 		} else {   
 		    // append part of new stream to reg1
-		    eprintln!("combining reg1 {:x?}, new {:x?}", reg1.vec, new.vec);
+		    // eprintln!("combining reg1 {:x?}, new {:x?}", reg1.vec, new.vec);
 		    reg1 = X86u8x16Long0x11b::combine_bytes(reg1, new, have_bytes);
 		}
-		eprintln!("new reg1 {:x?}", reg1.vec);
+		// eprintln!("new reg1 {:x?}", reg1.vec);
 
 		// save unused part as new read-ahead
 		let future_bytes = 16 - missing;
-		eprintln!("saving {} future bytes from new  {:x?}", future_bytes, new.vec);
+		// eprintln!("saving {} future bytes from new  {:x?}", future_bytes, new.vec);
 		if future_bytes != 0 {
 		    self.reg = X86u8x16Long0x11b::future_bytes(new, future_bytes);
-		    eprintln!("saved {:x?}", self.reg.vec);
+		    // eprintln!("saved {:x?}", self.reg.vec);
 		}
 
 		// calculate updated ra
@@ -872,8 +872,8 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	    // if mods + 16 <= array_size {
 
 	    // can safely read without wrap-around
-	    eprintln!("\n[not wrapping]\n");
-	    eprintln!("old_offset: {}", old_offset);
+	    // eprintln!("\n[not wrapping]\n");
+	    // eprintln!("old_offset: {}", old_offset);
 
 	    let missing = 16 - old_offset;
 
@@ -882,9 +882,9 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 
 	    if old_offset != 0 {
 
-		eprintln!("combining reg0 {:x?}, reg1 {:x?}", reg0.vec, reg1.vec);
+		// eprintln!("combining reg0 {:x?}, reg1 {:x?}", reg0.vec, reg1.vec);
 		ret = X86u8x16Long0x11b::combine_bytes(reg0, reg1, old_offset);
-		eprintln!("retval {:x?}", ret.vec);
+		// eprintln!("retval {:x?}", ret.vec);
 
 		// save unused part as new read-ahead
 
@@ -900,11 +900,11 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 		    future_bytes = old_offset;
 		}
 		self.ra = future_bytes;
-		eprintln!("future_bytes is {}", future_bytes);
+		// eprintln!("future_bytes is {}", future_bytes);
 
-		eprintln!("saving {} bytes from reg1  {:x?}", old_offset, reg1.vec);
+		// eprintln!("saving {} bytes from reg1  {:x?}", old_offset, reg1.vec);
 		reg1 = X86u8x16Long0x11b::future_bytes(reg1, old_offset); // saved later
-		eprintln!("saved {:x?}", reg1.vec);
+		// eprintln!("saved {:x?}", reg1.vec);
 		
 		// // panic!();	// this arm not tested yet!
 		
@@ -940,7 +940,7 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	    self.reg = reg1;
 	}
 
-	eprintln!("returning {:x?}", ret.vec);
+	// eprintln!("returning {:x?}", ret.vec);
 
 	ret
 	// eprintln!("[wrapping]");
