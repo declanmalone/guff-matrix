@@ -615,7 +615,8 @@ impl X86SimpleMatrix<X86u8x16Long0x11b> {
     pub fn fill(&mut self, data : &[u8]) {
 	let size = self.size();
 	if data.len() != size {
-	    panic!("Supplied data != matrix size");
+	    panic!("Supplied {} data bytes  != matrix size {}",
+	    data.len(), size);
 	}
 	self.array[0..size].copy_from_slice(data);
 

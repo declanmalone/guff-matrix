@@ -53,7 +53,7 @@ fn bench_x86_gf8_vec(c: &mut Criterion) {
 // Non-SIMD version (use same Simd Matrix types)
 
 // Will model on simd_identity_k9_multiply_colwise() test from lib.rs
-fn simd_x86_gf8_matrix_mul() {
+fn simd_x86_gf8_matrix_mul(cols : usize) {
     unsafe {
 	let identity = [
 	    1,0,0, 0,0,0, 0,0,0,
@@ -72,28 +72,37 @@ fn simd_x86_gf8_matrix_mul() {
 
 	// 17 is coprime to 9
 	let mut input =
-	    X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,17,false);
-	let vec : Vec<u8> = (1u8..=9 * 17).collect();
+	    X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,cols,false);
+
+	// create a vector with elements 1..255 repeating
+	let src : Vec<u8> = (1u8..=255).collect();
+	let iter = src.into_iter().cycle().take(9*cols);
+	let vec : Vec<u8> = iter.collect::<Vec<_>>();
+	
+	// let vec : Vec<u8> = (1u8..=9 * cols).collect();
 	input.fill(&vec[..]);
 
 	let mut output =
-	    X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,17,false);
+	    X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,cols,false);
 
 	// works if output is stored in colwise format
 	simd_warm_multiply(&mut transform, &mut input, &mut output);
 	// array has padding, so don't compare that
-	assert_eq!(output.array[0..9*17], vec);
+	assert_eq!(output.array[0..9*cols], vec);
     }
 }
 
-fn bench_simd_x86_gf8_matrix_mul(c: &mut Criterion) {
-    c.bench_function("simd gf8 matrix",
-		     |b| b.iter(|| simd_x86_gf8_matrix_mul()));
+fn bench_simd_x86_gf8_matrix_mul_17(c: &mut Criterion) {
+    c.bench_function("simd gf8 matrix 9x17",
+		     |b| b.iter(|| simd_x86_gf8_matrix_mul(17)));
 }
 
+fn bench_simd_x86_gf8_matrix_mul_16384(c: &mut Criterion) {
+    c.bench_function("simd gf8 matrix 9x16384",
+		     |b| b.iter(|| simd_x86_gf8_matrix_mul(16384)));
+}
 
-
-fn ref_gf8_matrix_mul() {
+fn ref_gf8_matrix_mul(cols : usize) {
 
     let f = new_gf8(0x11b, 0x1b);
     unsafe {
@@ -114,13 +123,20 @@ fn ref_gf8_matrix_mul() {
 
 	// 17 is coprime to 9
 	let mut input =
-	    X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,17,false);
-	let vec : Vec<u8> = (1u8..=9 * 17).collect();
+	    X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,cols,false);
+
+	// create a vector with elements 1..255 repeating
+	let src : Vec<u8> = (1u8..=255).collect();
+	let iter = src.into_iter().cycle().take(9*cols);
+	let vec : Vec<u8> = iter.collect::<Vec<_>>();
+	// eprintln!("Vector length is {}", vec.len());
+
+//	let vec : Vec<u8> = (1u8..=9 * 17).collect();
 	input.fill(&vec[..]);
 
 	// output layout does matter for final assert!()
 	let mut output =
-	    X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,17, false);
+	    X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,cols, false);
 
 	// 
 	// simd_warm_multiply(&mut transform, &mut input, &mut output);
@@ -128,7 +144,7 @@ fn ref_gf8_matrix_mul() {
 
 	// our implementation
 	let k = 9;
-	let c = 17;
+	let c = cols;
 
 	for row in 0..k {
 	    for col in 0..c {
@@ -148,14 +164,19 @@ fn ref_gf8_matrix_mul() {
 	}
 	
 	// array has padding, so don't compare that
-	assert_eq!(output.array[0..9*17], vec);
+	assert_eq!(output.array[0..9*cols], vec);
     }
 
 }
 
-fn bench_ref_gf8_matrix_mul(c: &mut Criterion) {
-    c.bench_function("ref gf8 matrix",
-		     |b| b.iter(|| ref_gf8_matrix_mul()));
+fn bench_ref_gf8_matrix_mul_17(c: &mut Criterion) {
+    c.bench_function("ref gf8 matrix 9x17",
+		     |b| b.iter(|| ref_gf8_matrix_mul(17)));
+}
+
+fn bench_ref_gf8_matrix_mul_16384(c: &mut Criterion) {
+    c.bench_function("ref gf8 matrix 9x16384",
+		     |b| b.iter(|| ref_gf8_matrix_mul(16384)));
 }
 
 
@@ -170,8 +191,10 @@ criterion_group!(benches,
 		 bench_ref_gf8_vec,
 		 bench_x86_gf8_vec,
 		 // 0.1.5 (bench before release)
-		 bench_simd_x86_gf8_matrix_mul,
-		 bench_ref_gf8_matrix_mul,
+		 bench_simd_x86_gf8_matrix_mul_17,
+		 bench_ref_gf8_matrix_mul_17,
+		 bench_simd_x86_gf8_matrix_mul_16384,
+		 bench_ref_gf8_matrix_mul_16384,
 );
 criterion_main!(benches);
 
