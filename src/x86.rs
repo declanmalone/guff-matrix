@@ -258,6 +258,7 @@ pub struct X86u8x16Long0x11b {
 impl X86u8x16Long0x11b {
 
     // left shifting pushes values further into the future
+    #[inline(always)]
     unsafe fn left_shift(reg : Self, bytes : usize) -> Self {
 	// Making case of 0, 16 an error so that I can catch logic
 	// errors in the calling functions.
@@ -273,6 +274,7 @@ impl X86u8x16Long0x11b {
     }
 
     // right shifting brings future values closer to the present
+    #[inline(always)]
     unsafe fn right_shift(reg : Self, bytes : usize) -> Self {
 	// Making case of 0, 16 an error so that I can catch logic
 	// errors in the calling functions.
@@ -287,6 +289,7 @@ impl X86u8x16Long0x11b {
 	Self { vec :_mm_shuffle_epi8(reg.vec, mask) }
     }
 
+    #[inline(always)]
     unsafe fn combine_bytes(r0 : Self, r1: Self, bytes : usize) -> Self {
 
 	// r0 has `bytes` values in it, zeros elsewhere
@@ -348,9 +351,12 @@ impl Simd for X86u8x16Long0x11b {
     type V = __m128i;
     const SIMD_BYTES : usize = 16;
 
+    #[inline(always)]
     fn zero_element() -> Self::E { 0u8.into() }
+    #[inline(always)]
     fn add_elements(a : Self::E, b : Self::E) -> Self::E { (a ^ b).into() }
     
+    #[inline(always)]
     fn cross_product(a : Self, b : Self) -> Self {
 	unsafe {
 	    Self { vec : vmul_p8x16(a.vec, b.vec, 0x1b) }
@@ -520,6 +526,7 @@ impl Simd for X86u8x16Long0x11b {
     //    will will remove bytes from the vector(s) and return the
     //    updated vector.
 
+    #[inline(always)]
     unsafe fn sum_across_n(lo : Self, hi : Self, mut n : usize, off : usize)
 			   -> (Self::E, Self) {
 	assert!((off < 16) && (n > 0) && (n <= 16));
@@ -532,20 +539,20 @@ impl Simd for X86u8x16Long0x11b {
 	// if offset != 0, shift right to skip over them
 	let mut temp = lo;
 	if off != 0 {
-	    eprintln!("right shifting temp (=lo) {:x?} to skip past off {}",
-		      temp.vec, off);
+	    // eprintln!("right shifting temp (=lo) {:x?} to skip past off {}",
+	    // 	      temp.vec, off);
 	    temp = Self::right_shift(temp, off);
-	    eprintln!("result: {:x?}", temp);
+	    // eprintln!("result: {:x?}", temp);
 	}
 
 	// if are any unconsumed bytes at the end, remove them
 	if off + n < 16 {
 	    let shift_amount = 16 - n;
-	    eprintln!("off + n ({}) < 16", off + n);
-	    eprintln!("left shifting {:x?} by {} to remove end bytes",
-		      temp.vec, shift_amount);
+	    // eprintln!("off + n ({}) < 16", off + n);
+	    // eprintln!("left shifting {:x?} by {} to remove end bytes",
+	    // 	      temp.vec, shift_amount);
 	    temp = Self::left_shift(temp, shift_amount);
-	    eprintln!("result: {:x?}", temp);
+	    // eprintln!("result: {:x?}", temp);
 	}
 
 	// note case of off + n = 16 requires neither the above
@@ -555,17 +562,17 @@ impl Simd for X86u8x16Long0x11b {
 	// (they're always at the start of the register)
 	if off + n > 16 {
 	    let shift_amount = 32 - (off + n);
-	    eprintln!("off + n ({}) > 16", off + n);
-	    eprintln!("left shifting hi {:x?} by {} to remove end bytes",
-		      hi.vec, shift_amount);
+	    // eprintln!("off + n ({}) > 16", off + n);
+	    // eprintln!("left shifting hi {:x?} by {} to remove end bytes",
+	    // 	      hi.vec, shift_amount);
 	    let temp_hi = Self::left_shift(hi, shift_amount);
-	    eprintln!("result: {:x?}", temp_hi.vec);
-	    eprintln!("adding that to temp ({:x?})", temp.vec);
+	    // eprintln!("result: {:x?}", temp_hi.vec);
+	    // eprintln!("adding that to temp ({:x?})", temp.vec);
 	    temp = Self { vec : _mm_xor_si128(
 		temp.vec,
 		temp_hi.vec
 	    ) };
-	    eprintln!("result: {:x?}", temp.vec);
+	    // eprintln!("result: {:x?}", temp.vec);
 	}
 
 	let mut temp = temp.vec;
@@ -577,7 +584,7 @@ impl Simd for X86u8x16Long0x11b {
 	temp = _mm_xor_si128(temp, _mm_srli_si128(temp, 1));
         let extracted : u8 = (_mm_extract_epi8(temp, 0) & 255) as u8;
 
-	eprintln!("Returning extracted {}, vector {:x?}\n", extracted, m);
+	// eprintln!("Returning extracted {}, vector {:x?}\n", extracted, m);
 	
         return (extracted, m);
 

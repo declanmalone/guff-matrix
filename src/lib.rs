@@ -45,7 +45,6 @@
 
 #![feature(stdsimd)]
 
-
 // Rationalise target arch/target feature/build feature
 //
 // I have three different arm-based sets of SIMD code:
@@ -68,6 +67,56 @@
 // Only one x86 implementation, included automatically
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub mod x86;
+
+// I want to emit assembly for these
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub fn _monomorph() {
+
+    use crate::x86::*;
+
+    #[inline(never)]
+    fn inner_fn<S : Simd + Copy>(
+	xform  : &mut impl SimdMatrix<S>,
+	input  : &mut impl SimdMatrix<S>,
+	output : &mut impl SimdMatrix<S>) {
+	unsafe {
+	    simd_warm_multiply(xform, input, output);
+	}
+    }
+    unsafe {
+	let identity = [
+	    1,0,0, 0,0,0, 0,0,0,
+	    0,1,0, 0,0,0, 0,0,0,
+	    0,0,1, 0,0,0, 0,0,0,
+	    0,0,0, 1,0,0, 0,0,0,
+	    0,0,0, 0,1,0, 0,0,0,
+	    0,0,0, 0,0,1, 0,0,0,
+	    0,0,0, 0,0,0, 1,0,0,
+	    0,0,0, 0,0,0, 0,1,0,
+	    0,0,0, 0,0,0, 0,0,1,
+	];
+	let mut transform =	// mut because of iterator
+	    X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,9,true);
+	transform.fill(&identity[..]);
+	
+	// 17 is coprime to 9
+	let mut input =
+	    X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,17,false);
+	let vec : Vec<u8> = (1u8..=9 * 17).collect();
+	input.fill(&vec[..]);
+
+	let mut output =
+	    X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,17,false);
+
+	// works if output is stored in colwise format
+	inner_fn(&mut transform, &mut input, &mut output);
+	// array has padding, so don't compare that
+	assert_eq!(output.array[0..9*17], vec);
+    }
+    
+}
+
+
 
 // Implementation (1) above
 #[cfg(all(target_arch = "arm", feature = "arm_dsp"))]
