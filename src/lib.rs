@@ -64,6 +64,8 @@
 // is enabled.
 //
 
+use guff::{GaloisField,new_gf8};
+
 // Only one x86 implementation, included automatically
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub mod x86;
@@ -217,6 +219,9 @@ pub trait SimdMatrix<S : Simd> {
 	}
     }
     fn size(&self) -> usize { self.rows() * self.cols() }
+
+    fn as_mut_slice(&mut self) -> &mut [S::E];
+    fn as_slice(&self) -> &[S::E];
 }
 
 
@@ -322,6 +327,52 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
     }
 }
 
+
+// reference matrix multiply, doesn't use SIMD at all
+pub fn matrix_multiply<S : Simd + Copy, G>(
+    xform  : &mut impl SimdMatrix<S>,
+    input  : &mut impl SimdMatrix<S>,
+    output : &mut impl SimdMatrix<S>,
+    field : G)
+where G : GaloisField,
+<S as Simd>::E: From<<G as GaloisField>::E> + Copy,
+<G as GaloisField>::E: From<<S as Simd>::E> + Copy
+{
+
+    // dimension tests
+    let c = input.cols();
+    let n = xform.rows();
+    let k = xform.cols();
+
+    // regular asserts, since they check user-supplied vars
+    assert!(k > 0);
+    assert!(n > 0);
+    assert!(c > 0);
+    assert_eq!(input.rows(), k);
+    assert_eq!(output.cols(), c);
+    assert_eq!(output.rows(), n);
+
+    let xform_array  = xform.as_slice();
+    let input_array  = input.as_slice();
+    let mut output_array = output.as_mut_slice();
+
+    for row in 0..k {
+	for col in 0..c {
+	    let xform_index  = xform.rowcol_to_index(row,0);
+	    let input_index  = input.rowcol_to_index(0,col);
+	    let output_index = output.rowcol_to_index(row,col);
+
+	    let mut dp = S::zero_element();
+	    for i in 0..k {
+		dp = S::add_elements(dp, field
+				     .mul(xform_array[xform_index + i].into(),
+					  input_array[input_index + i].into()
+				     ).into());
+	    }
+	    output_array[output_index] = dp;
+	}
+    }
+}
 
 
 #[cfg(test)]

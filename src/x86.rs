@@ -70,7 +70,7 @@ use std::arch::x86_64::*;
 
 
 /// 16-way SIMD multiplication of elements in GF(2<sup>8</sup>) with poly 0x11b
-#[inline(always)]
+// #[inline(always)]
 pub unsafe fn vmul_p8x16(mut a : __m128i, b : __m128i, poly : u8) -> __m128i {
 
     let     zero = _mm_setzero_si128();
@@ -116,7 +116,7 @@ pub unsafe fn vmul_p8x16(mut a : __m128i, b : __m128i, poly : u8) -> __m128i {
 /// 16-way SIMD multiplication of buffers in GF(2<sup>8</sup>) with poly 0x11b
 ///
 /// Buffers `av`, `bv` and `dest` must be a multiple of 16 in length
-#[inline(always)]
+// #[inline(always)]
 pub unsafe fn vmul_p8_buffer(dest : &mut [u8], av : &[u8], bv : &[u8], poly : u8) {
 
     debug_assert_eq!(av.len(), bv.len());
@@ -258,7 +258,7 @@ pub struct X86u8x16Long0x11b {
 impl X86u8x16Long0x11b {
 
     // left shifting pushes values further into the future
-    #[inline(always)]
+    // #[inline(always)]
     unsafe fn left_shift(reg : Self, bytes : usize) -> Self {
 	// Making case of 0, 16 an error so that I can catch logic
 	// errors in the calling functions.
@@ -274,7 +274,7 @@ impl X86u8x16Long0x11b {
     }
 
     // right shifting brings future values closer to the present
-    #[inline(always)]
+    // #[inline(always)]
     unsafe fn right_shift(reg : Self, bytes : usize) -> Self {
 	// Making case of 0, 16 an error so that I can catch logic
 	// errors in the calling functions.
@@ -289,7 +289,7 @@ impl X86u8x16Long0x11b {
 	Self { vec :_mm_shuffle_epi8(reg.vec, mask) }
     }
 
-    #[inline(always)]
+    // #[inline(always)]
     unsafe fn combine_bytes(r0 : Self, r1: Self, bytes : usize) -> Self {
 
 	// r0 has `bytes` values in it, zeros elsewhere
@@ -352,12 +352,12 @@ impl Simd for X86u8x16Long0x11b {
     type V = __m128i;
     const SIMD_BYTES : usize = 16;
 
-    #[inline(always)]
+    // #[inline(always)]
     fn zero_element() -> Self::E { 0u8.into() }
-    #[inline(always)]
+    // #[inline(always)]
     fn add_elements(a : Self::E, b : Self::E) -> Self::E { (a ^ b).into() }
     
-    #[inline(always)]
+    // #[inline(always)]
     fn cross_product(a : Self, b : Self) -> Self {
 	unsafe {
 	    Self { vec : vmul_p8x16(a.vec, b.vec, 0x1b) }
@@ -374,7 +374,7 @@ impl Simd for X86u8x16Long0x11b {
     //    will will remove bytes from the vector(s) and return the
     //    updated vector.
 
-    #[inline(always)]
+    // #[inline(always)]
     unsafe fn sum_across_n(lo : Self, hi : Self, n : usize, off : usize)
 			   -> (Self::E, Self) {
 	// usually only called internally, so safe to use debug_assert
@@ -630,7 +630,18 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
     fn cols(&self) -> usize { self.cols }
     fn is_rowwise(&self) -> bool { self.is_rowwise }
 
+    fn as_slice(&self) -> &[u8] {
+	let size = self.size();
+	&self.array[0..size]
+    }
+
+    fn as_mut_slice(&mut self) -> &mut [u8] {
+	let size = self.size();
+	&mut self.array[0..size]
+    }
+
     // this needs more work
+    // #[inline(always)]
     unsafe fn read_next(&mut self) -> X86u8x16Long0x11b {
 	// loading up reg, rows, cols and mods every time might be a
 	// bit of a performance bottleneck.
@@ -967,31 +978,38 @@ mod tests {
 	    assert_eq!(sum, 0b0000_0000);
 	    
 	    // off = 0, n = 2
-	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 2, 0);
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 2, 0);
 	    assert_eq!(sum, 0b0000_0001);
 
 	    // off = 0, n = 3
-	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 3, 0);
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 3, 0);
 	    assert_eq!(sum, 0b0000_0011);
 
 	    // off = 0, n = 4
-	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 4, 0);
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 4, 0);
 	    assert_eq!(sum, 0b0000_0111);
 
 	    // off = 0, n = 5
-	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 5, 0);
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 5, 0);
 	    assert_eq!(sum, 0b0000_1111);
 
 	    // off = 0, n = 6
-	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 6, 0);
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 6, 0);
 	    assert_eq!(sum, 0b0001_1111);
 
 	    // off = 0, n = 7
-	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 7, 0);
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 7, 0);
 	    assert_eq!(sum, 0b0011_1111);
 
 	    // off = 0, n = 15
-	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 15, 0);
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 15, 0);
 	    let expect : u8 = 0b0111_1111 ^ 0b1001_1111;
 	    eprintln!("expect {:x}", expect);
 	    assert_eq!(sum, expect);
@@ -1009,26 +1027,31 @@ mod tests {
 	unsafe {
 
 	    // av[0] goes into low byte of lo
-	    let lo = _mm_lddqu_si128(av.as_ptr() as *const std::arch::x86_64::__m128i);
-	    let hi = _mm_lddqu_si128(bv.as_ptr() as *const std::arch::x86_64::__m128i);
+	    let lo = _mm_lddqu_si128(
+		av.as_ptr() as *const std::arch::x86_64::__m128i);
+	    let hi = _mm_lddqu_si128(
+		bv.as_ptr() as *const std::arch::x86_64::__m128i);
 
 	    // wrap the registers up in Simd type
 	    let lo = X86u8x16Long0x11b { vec : lo };
 	    let hi = X86u8x16Long0x11b { vec : hi };
 
-	    // try different offsets, etc.
+	    // try different offsets
 	    
-	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 16, 3);
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 16, 3);
 	    let expect : u8 = 0b1111_1101 ^ 0b0011_1001;
 	    eprintln!("expect {:x}", expect);
 	    assert_eq!(sum, expect);
 
-	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 1, 3);
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 1, 3);
 	    let expect : u8 = 4;
 	    eprintln!("expect {:x}", expect);
 	    assert_eq!(sum, expect);
 
-	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 2, 3);
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 2, 3);
 	    let expect : u8 = 4 + 8;
 	    eprintln!("expect {:x}", expect);
 	    assert_eq!(sum, expect);
@@ -1054,7 +1077,9 @@ mod tests {
 
     #[test]
     fn test_matrix_read_pre_fill() {
+
 	let mut mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(4, 4, true);
+
 	unsafe {
         let zero : __m128i = _mm_set_epi32( 0, 0, 0, 0 );
 	    let first_read = mat.read_next();
@@ -1081,20 +1106,23 @@ mod tests {
 	    );
 
 	    // just to be sure that the above is correct:
-	    let array_ptr = identity.as_ptr() as *const std::arch::x86_64::__m128i;
+	    let array_ptr = identity
+		.as_ptr() as *const std::arch::x86_64::__m128i;
 	    let id_reg = _mm_lddqu_si128(array_ptr);
 	    assert_eq!(format!("{:?}",one), format!("{:?}",id_reg));
 
 	    // now test read_next()
 	    let first_read = mat.read_next();
-	    assert_eq!(format!("{:?}",one), format!("{:?}",first_read.vec));
+	    assert_eq!(format!("{:?}",one),
+		       format!("{:?}",first_read.vec));
 
 	    // That big-end ordering for u32 load is puzzling, so make
 	    // sure that when we write register back to memory it's in
 	    // correct order
 
 	    let mut scratch = [0u8; 16];
-	    let scratch_ptr = scratch.as_mut_ptr() as *mut std::arch::x86_64::__m128i;
+	    let scratch_ptr = scratch
+		.as_mut_ptr() as *mut std::arch::x86_64::__m128i;
 
 	    _mm_storeu_si128(scratch_ptr,first_read.vec);
 	    assert_eq!(scratch, identity);
