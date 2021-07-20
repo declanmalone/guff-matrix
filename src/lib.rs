@@ -201,7 +201,10 @@ pub trait SimdMatrix<S : Simd> {
     fn rows(&self) -> usize;
     fn cols(&self) -> usize;
     unsafe fn read_next(&mut self) -> S;
-    fn write_next(&mut self, val : S::E);
+    fn write_next(&mut self, val : S::E); // write along diagonal
+    fn indexed_write(&mut self, index : usize, elem : S::E);
+    fn as_mut_slice(&mut self) -> &mut [S::E];
+    fn as_slice(&self) -> &[S::E];
 
     // not required by multiply. Maybe move to a separate accessors
     // trait. Comment out for now.
@@ -220,8 +223,6 @@ pub trait SimdMatrix<S : Simd> {
     }
     fn size(&self) -> usize { self.rows() * self.cols() }
 
-    fn as_mut_slice(&mut self) -> &mut [S::E];
-    fn as_slice(&self) -> &[S::E];
 }
 
 
@@ -268,7 +269,7 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
 
     let mut offset_mod_simd = 0;
     let mut total_dps = 0;
-    let target = n * k * c;
+    let target = n * c;		// number of dot products
     
     while total_dps < target {
 
@@ -354,7 +355,7 @@ where G : GaloisField,
 
     let xform_array  = xform.as_slice();
     let input_array  = input.as_slice();
-    let mut output_array = output.as_mut_slice();
+    // let mut output_array = output.as_mut_slice();
 
     for row in 0..k {
 	for col in 0..c {
@@ -369,7 +370,7 @@ where G : GaloisField,
 					  input_array[input_index + i].into()
 				     ).into());
 	    }
-	    output_array[output_index] = dp;
+	    output.indexed_write(output_index,dp);
 	}
     }
 }

@@ -635,6 +635,10 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	&self.array[0..size]
     }
 
+    fn indexed_write(&mut self, index : usize, elem : u8) {
+	self.array[index] = elem;
+    }
+
     fn as_mut_slice(&mut self) -> &mut [u8] {
 	let size = self.size();
 	&mut self.array[0..size]
