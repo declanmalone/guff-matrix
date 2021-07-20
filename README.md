@@ -57,10 +57,7 @@ multiplication across vectors:
 
 - [ ] Arm NEON implementation of parallel long (bitwise) multiplication
 
-I also have a 4-way armv6 (Thumb) implementation of the long
-multiplication routine, which I may add for completeness. Its
-performance is roughly comparable to doing four single multiply using
-lookup tables, only slightly worse.
+- [ ] 4-way armv6 (Thumb) implementation of the long multiplication routine
 
 Support for Arm targets requires nightly Rust build.
 

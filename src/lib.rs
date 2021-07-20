@@ -14,20 +14,30 @@
 //! implementing Reed-Solomon or Information Dispersal Algorithm
 //! error-correcting codes.
 //!
-//! For x86_64 and Armv8 (Aarch64), building requires no extra
+//! # Building 
+//!
+//! For x86_64 and Armv8 (Aarch64), building should require no extra
 //! options:
 //!
 //! ```bash
 //! cargo build
 //! ```
 //!
-//! It seems that on armv7 platforms, the rust build system is unable
-//! to detect the availability of `target_feature = "neon"`. As a
-//! result, I've added "neon" as a build feature instead. Select it
-//! with:
+//! # Optional Features
+//!
+//! Currently available options are:
+//! 
+//! - **`simulator`** — Software simulation of "wrap-around read matrix"
+//!   ("warm") multiply
+//! - **`arm_dsp`** — Armv6 (dsp) 4-way SIMD multiply
+//! - **`arm_long`** — Armv7/Armv8 8-way NEON reimplementation of Armv6 code
+//! - **`arm_vmull`** — Armv7/Armv8 8-way NEON vmull/vtbl multiply
+//!
+//! To enable building these, use the `--features` option when
+//! building, eg:
 //!
 //! ```bash
-//! RUSTFLAGS="-C target-cpu=native" cargo build --features neon
+//! RUSTFLAGS="-C target-cpu=native" cargo build --features arm_vmull
 //! ```
 //!
 //! # Software Simulation Feature
@@ -64,7 +74,7 @@
 // is enabled.
 //
 
-use guff::{GaloisField,new_gf8};
+use guff::{GaloisField};
 
 // Only one x86 implementation, included automatically
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

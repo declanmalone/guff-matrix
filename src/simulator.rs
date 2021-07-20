@@ -1,6 +1,33 @@
 //! Non-SIMD, pure Rust simulation of matrix multiplication algorithm
 //!
-//! See [warm_multiply] or program source for details.
+//! There are two simulators included here. Both are based on the idea
+//! of treating the transform and input matrices as infinite streams
+//! that wrap around. These streams are read sequentially and
+//! multiplied together to get a product stream. The product stream is
+//! then apportioned into dot products.
+//!
+//! Using this method, the generated dot products fill the output
+//! matrix by progressing along the diagonal, with wrap-around. So
+//! long as the number of columns in the input and output matrices has
+//! some factor that is relatively prime to the length of the dot
+//! product, all elements in the output matrix will be populated.
+//!
+//! # Bytewise Simulation
+//!
+//! The first simulation uses
+//! [TransformMatrix](struct.TransformMatrix.html),
+//! [InputMatrix](struct.InputMatrix.html) and
+//! [OutputMatrix](struct.OutputMatrix.html) structs to store the
+//! matrices. The first two implement [Iterator] to simulate reading
+//! them as infinite streams. The
+//! [MultipyStream](struct.MultipyStream.html) struct simulates the
+//! cross product of these streams, and it also implements [Iterator].
+//!
+//! The [warm_multiply](fn.warm_multiply.html) function simulates the matrix multiplication
+//! algorithm by doing byte-by-byte reads from the
+//! [MultipyStream](struct.MultipyStream.html).
+//!
+//! # SIMD Simulation 
 
 // Wrap-around reads/multiplies on matrices
 //
@@ -202,11 +229,12 @@
 use crate::*;
 use core::mem::size_of;
 
+/// Transform matrix for first simulation. Uses row-wise data storage.
 #[derive(Debug, Clone)]
 pub struct TransformMatrix {
     n : usize,			// rows
     k : usize,			// cols
-    array : Vec<u8>,		// colwise storage
+    array : Vec<u8>,		// row-wise storage
     read_pointer : usize,
 }
 
@@ -222,7 +250,7 @@ impl TransformMatrix {
     }
 }
 
-// infinite tape... we'll use take(simd_width)
+/// Bytewise wrap-around iteration of `TransformMatrix`
 impl Iterator for TransformMatrix {
     type Item = u8;
     fn next(&mut self) -> Option<Self::Item> {
@@ -235,6 +263,9 @@ impl Iterator for TransformMatrix {
     }
 }
 
+
+/// Input matrix for first simulation. Uses column-wise
+/// data storage.
 #[derive(Debug, Clone)]
 pub struct InputMatrix {
     k : usize,			// rows
@@ -255,7 +286,7 @@ impl InputMatrix {
     }
 }
 
-// infinite tape... we'll use take(simd_width)
+/// Bytewise wrap-around iteration of `InputMatrix`
 impl Iterator for InputMatrix {
     type Item = u8;
     fn next(&mut self) -> Option<Self::Item> {
@@ -272,6 +303,8 @@ use guff::*;
 
 // MultiplyStream will "zip" the two iters above
 // #[derive(Debug)]
+/// Structure for holding iterators over `TransformMatrix` and
+/// `InputMatrix`
 pub struct MultiplyStream<'a> {
     // We don't care what type is producing the u8s
     xform : &'a mut Iterator<Item=u8>,
@@ -281,6 +314,7 @@ pub struct MultiplyStream<'a> {
     field : &'a F8,  // use concrete implementation instead
 }
 
+/// Simulate multiplication (cross product) of two matrix streams
 impl<'a> Iterator for MultiplyStream<'a> {
     type Item = u8;
     fn next(&mut self) -> Option<Self::Item> {
@@ -291,6 +325,8 @@ impl<'a> Iterator for MultiplyStream<'a> {
     }
 }
 
+/// Output matrix for first simulation. Supports row-wise and
+/// column-wise storage.
 #[derive(Debug)]
 pub struct OutputMatrix {
     n : usize,			// rows
@@ -331,12 +367,15 @@ impl OutputMatrix {
     }
 }
 
+/// First (byte-wise) matrix multiply simulation
+///
 /// "warm": "wrap-around read matrix"
 ///
 /// This routine treats the transform and input matrices as being
-/// infinite streams, multiplies them, then apportions the products to
-/// the correct dot product sums. Completed dot products are written
-/// out sequentially along the diagonal of the output matrix.
+/// infinite byte streams, multiplies them, then apportions the
+/// products to the correct dot product sums. Completed dot products
+/// are written out sequentially along the diagonal of the output
+/// matrix.
 ///
 /// Provided the number of columns in the input and output matrices
 /// (both set to the same value) has a factor that is relatively prime
@@ -344,8 +383,6 @@ impl OutputMatrix {
 /// of the output matrix is guaranteed to write to every cell in the
 /// matrix.
 ///
-/// xform and input are assumed to have data in them (call
-/// `matrix.fill(...)` first).
 pub fn warm_multiply(xform  : &mut TransformMatrix,
                      input  : &mut InputMatrix,
                      output : &mut OutputMatrix) {
@@ -410,24 +447,25 @@ pub fn warm_multiply(xform  : &mut TransformMatrix,
     }
 }
 
-// Interleaving
-//
-// The fast matrix multiply works best when all reads (apart from
-// wrap-around reads) are contiguous in memory. That suits the case
-// where we're encoding using RS, striping or IDA, since each column
-// of the input message corresponds to a contiguous chunk of input.
-//
-// When decoding, though, the input has row-wise organisation: each
-// stripe, share or parity is contiguous.
-//
-// For this case, we need to interleave k contiguous streams.
-//
-// Note that there's no need to de-interleave on the output, since we
-// can choose between row-wise and col-wise writes. Neither should
-// have any impact on the speed of the program, since we never read
-// from the output matrix.
-
-// pass in a vector of slices, and interleave them into another slice
+/// Interleave row-wise data for storage in column-wise matrix
+///
+/// The fast matrix multiply works best when all reads (apart from
+/// wrap-around reads) are contiguous in memory. That suits the case
+/// where we're encoding using RS, striping or IDA, since each column
+/// of the input message corresponds to a contiguous chunk of input.
+///
+/// When decoding, though, the input has row-wise organisation: each
+/// stripe, share or parity is contiguous.
+///
+/// For this case, we need to interleave k contiguous streams.
+///
+/// Note that there's no need to de-interleave on the output, since we
+/// can choose between row-wise and col-wise writes. Neither should
+/// have any impact on the speed of the program, since we never read
+/// from the output matrix.
+///
+/// Passed in a vector of slices and interleaves them into another
+/// slice
 pub fn interleave_streams(dest : &mut [u8], slices : &Vec<&[u8]>) {
 
     let cols = dest.len() / slices.len();
@@ -446,37 +484,32 @@ pub fn interleave_streams(dest : &mut [u8], slices : &Vec<&[u8]>) {
 }
 
 
-// SIMD simulation
-//
-// I've looked at various options for laying out the code in a
-// portable way. I'm going to implement that here first using a
-// simulated SIMD engine that works with [u8;8] as its native type.
-
-// This trait will be in main module and will have to be implemented
-// for each architecture
+/// Simulated SIMD engine type
+///
+/// A trait that can be used to simulate a SIMD engine. Can be
+/// implemented for native vector type such as `\[u8;8\]`
 pub trait Simd {
-    type E;			// elemental type, eg u8
-    type V;			// vector type, eg [u8; 8]
+    /// elemental type, eg u8
+    type E;
+    /// vector type, eg [u8; 8]
+    type V;
 
-    // cross product will be our simd multiply in real arch
+    /// pairwise multiplication of vector elements
     fn cross_product(a : Self, b : Self) -> Self;
 
-    // to-do: consume and sum products
-    fn sum_across_n(m0 : Self, m1 : Self, n : usize, off : usize) -> (Self::E, Self);
+    /// consume and sum products from m0, m1 vector buffers
+    fn sum_across_n(m0 : Self, m1 : Self, n : usize, off : usize)
+		    -> (Self::E, Self);
 }
 
-// Newtype for our fake architecture
-
-// It's usual to implement, eg Simd(u128), but then we don't know what
-// type the lanes are. We could do a variant, eg SimdU8(u128) to
-// indicate that there are 16 u8s in the vector, but I'll use
-// associated types (see Simd, above).
-
+/// Newtype for faking Simd architecture
+///
 #[derive(Debug, Clone, Copy)]
 pub struct SimSimd {
     vec : [u8; 8],
 }
 
+/// Implement Simd using `\[u8;8\]` for vector storage
 impl Simd for SimSimd {
     type V = [u8; 8];
     type E = u8;
@@ -507,41 +540,7 @@ impl Simd for SimSimd {
     }
 }
 
-// Can I reuse the above matrices? Yes, I think so. I'll use the same
-// read_pointer variable that's already in them.
-//
-// Actually no. Not like this, anyway (conflicting implementations):
-// impl Iterator for InputMatrix {
-//     type = SimSimd;
-//     fn next(&mut self) -> Option<Self::Item> {
-// 	let val = self.array[self.read_pointer];
-// 	Some(val)
-//     }
-// }
-//
-// There may be another way. It involves wrapping the original...
-// struct SimSimdInputMatrix(InputMatrix);
-// impl SimSimdInputMatrix {
-//     fn new(k : usize, c : usize) -> Self {
-// 	Self(InputMatrix::new(k,c))
-//     }
-//     fn fill(&mut self, slice : &[u8]) -> &mut Self {
-// 	&mut Self(*self.0.fill(slice))
-//     }
-// }
-//
-// You know what? That's more effort than just copying the original.
-//
-// I guess that I could make a newtype over just the array's contents
-// (a slice) and then have a trait SimSimdSpecificIterator local to
-// this module. It's the same as the wrapping above, but with no
-// pass-through required, I think. The downside is that we lose out on
-// being able to use the generic matrix multiply code.
-//
-// Anyhow, since it's only a small bit of repeated code, and different
-// SIMD iterators will need different setups anyway, it's not worth
-// worrying about.
-
+/// Input matrix type for second simulation
 #[derive(Debug)]
 pub struct SimSimdInputMatrix {
     k : usize,			// rows
@@ -565,6 +564,7 @@ impl SimSimdInputMatrix {
     }
 }
 
+/// Wrap-around Simd reads from input matrix
 impl Iterator for SimSimdInputMatrix {
     type Item = SimSimd;
     #[inline(always)]
@@ -586,6 +586,8 @@ impl Iterator for SimSimdInputMatrix {
 
 // same for TransformMatrix, but skip constructor boilerplate. Prefix
 // all names with SimSimd as before:
+
+/// Transform matrix type for second simulation
 #[derive(Debug, Clone)]
 pub struct SimSimdTransformMatrix {
     n : usize,			// rows
@@ -612,6 +614,8 @@ impl SimSimdTransformMatrix {
 //
 // I would have saved some typing if I had just made a "Matrix" and
 // stored rowwise/colwise parameter)
+
+/// Wrap-around Simd reads from transform matrix
 impl Iterator for SimSimdTransformMatrix {
     type Item = SimSimd;
     #[inline(always)]
@@ -641,6 +645,7 @@ impl Iterator for SimSimdTransformMatrix {
 //
 // (at least if I've figured things out correctly)
 
+/// Second (simd-wise) matrix multiply simulation
 pub fn simsimd_warm_multiply(xform  : &mut SimSimdTransformMatrix,
 			     input  : &mut SimSimdInputMatrix,
 			     output : &mut OutputMatrix) {
