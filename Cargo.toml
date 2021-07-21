@@ -45,7 +45,7 @@ arm_vmull = []
 
 # I want documentation generated for features
 [package.metadata.docs.rs]
-features = ["simulator", "arm_dsp", "arm_long", "arm_vmull"]
+#features = ["simulator", "arm_dsp", "arm_long", "arm_vmull"]
 all-features = true
 targets = ["x86_64-unknown-linux-gnu", "armv7-unknown-linux-gnueabihf", "aarch64-unknown-linux-gnu"]
 rustdoc-args = ["--cfg", "doc_cfg"]

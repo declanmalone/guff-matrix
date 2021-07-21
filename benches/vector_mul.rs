@@ -142,26 +142,9 @@ fn ref_gf8_matrix_mul(cols : usize) {
 	// simd_warm_multiply(&mut transform, &mut input, &mut output);
 	//
 
-	// our implementation
-	let k = 9;
-	let c = cols;
-
-	for row in 0..k {
-	    for col in 0..c {
-		let xform_index  = xform.rowcol_to_index(row,0);
-		let input_index  = input.rowcol_to_index(0,col);
-		let output_index = output.rowcol_to_index(row,col);
-
-		let mut dp = 0;
-		for i in 0..k {
-		    dp ^= f
-			.mul(xform.array[xform_index + i],
-			     input.array[input_index + i]
-			);
-		}
-		output.array[output_index] = dp;
-	    }
-	}
+	// code that was here moved into fn in main module
+	
+	reference_matrix_multiply(&mut xform, &mut input, &mut output, &f);
 	
 	// array has padding, so don't compare that
 	assert_eq!(output.array[0..9*cols], vec);

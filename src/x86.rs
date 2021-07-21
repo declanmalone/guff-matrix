@@ -1,10 +1,22 @@
 //! x86_64-specific SIMD
+//!
+//! This module contains architecture-specific code to implement the
+//! "Wrap-Around Read Matrix" multiply algorithm for the x86_64
+//! architecture.
+//!
+//! At present a fixed polynomial `0x11b` is used to implement
+//! calculations in GF(2<sup>8</sup>). This may change later to
+//! include a choice of different polynomials and field
+//! sizes.
+//!
+//! 
 
 // x86 stuff is in stable
 #[cfg(target_arch = "x86")]
 use std::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
+
 
 
 // to-do (basic vector code):
@@ -247,6 +259,7 @@ pub unsafe fn vector_cube_p8x16(a : __m128i, poly : u8) -> __m128i {
 
 use super::{Simd,SimdMatrix};
 
+/// Newtype for working with __m128i vector type.
 #[derive(Clone,Copy,Debug)]
 pub struct X86u8x16Long0x11b {
     vec : __m128i,
@@ -254,7 +267,7 @@ pub struct X86u8x16Long0x11b {
 
 // #![feature(const_ptr_offset)]
 
-// Add extra things here to help test intrinsics
+/// Supporting functions common to all SimdMatrix implementations here
 impl X86u8x16Long0x11b {
 
     // left shifting pushes values further into the future
@@ -343,9 +356,11 @@ unsafe fn test_alignr() {
     // (mnemonic: the future is to the right, the past to the left)
 }
 
-// Use fixed polynomial. Even though our mul routine above can take
-// one as a parameter, my Arm vmull/vtbl implementation needs to use a
-// pre-generated lookup table. So for now, stick with a fixed poly.
+/// Implement Simd trait for x86_64
+///
+/// Use a fixed polynomial. Even though our mul routine above can take
+/// one as a parameter, my Arm vmull/vtbl implementation needs to use
+/// a pre-generated lookup table. So for now, stick with a fixed poly.
 impl Simd for X86u8x16Long0x11b {
 
     type E = u8;
@@ -458,6 +473,9 @@ impl Simd for X86u8x16Long0x11b {
 // we can start off (in the constructor) by reading in a full register
 // without needing to worry about wrap-around.
 
+/// Matrix storage type using direct memory accesses to implement
+/// wrap-around.
+/// 
 pub struct X86SimpleMatrix<S : Simd> {
 
     // to implement read_next
@@ -477,6 +495,7 @@ pub struct X86SimpleMatrix<S : Simd> {
     is_rowwise : bool,
 }
 
+/// Concrete implementation of matrix for x86_64
 impl X86SimpleMatrix<X86u8x16Long0x11b> {
 
     pub fn new(rows : usize, cols : usize, is_rowwise : bool) -> Self {
@@ -624,7 +643,7 @@ const SHUFFLE_MASK : [u8; 48] = [
 
 impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 
-    const SIMD_SIZE : usize = 128;
+    //const SIMD_SIZE : usize = 128;
 
     fn rows(&self) -> usize { self.rows }
     fn cols(&self) -> usize { self.cols }

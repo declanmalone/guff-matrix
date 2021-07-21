@@ -8,9 +8,56 @@
 //!
 //! Using this method, the generated dot products fill the output
 //! matrix by progressing along the diagonal, with wrap-around. So
-//! long as the number of columns in the input and output matrices has
-//! some factor that is relatively prime to the length of the dot
-//! product, all elements in the output matrix will be populated.
+//! long as the number of columns in the input and output matrices
+//! does not have the number of rows in the transform matrix as a
+//! factor, all elements in the output matrix will be populated.
+//!
+//! Example: 4x3 transform x 3x5 input/output matrices
+//!
+//! ```ascii
+//! | a b c |   | i0 i3 i6 i9 ic |   | 0 16 12  8  4 |
+//! | d e f | x | i1 i4 i7 ia id | = | 5  1 17 13  9 |
+//! | g h i |   | i2 i5 i8 ib ie |   |10  6  2 18 14 |
+//! | j k l |                        |15 11  7  3 19 |
+//! ```
+//!
+//! This shows the order that elements are written to the output
+//! matrix. As can be seen, the entire matrix is filled.
+//!
+//! Example: 4x3 transform x 3x3 input/output matrices
+//!
+//! ```ascii
+//! | a b c |   | i0 i3 i6 |   | 0  4  8 |
+//! | d e f | x | i1 i4 i7 | = | 9  1  5 |
+//! | g h i |   | i2 i5 i8 |   | 6 10  2 |
+//! | j k l |                  | 3  7 11 |
+//! ```
+//!
+//! This also works since the number of output columns (3) does not
+//! have the number of rows in the transform matrix (4) as a factor.
+//!
+//! However:  4x3 transform x 3x4 input/output matrices
+//!
+//! ```ascii
+//! | a b c |   | i0 i3 i6 i9 |   | 0 - - - |
+//! | d e f | x | i1 i4 i7 ia | = | - 1 - - |
+//! | g h i |   | i2 i5 i8 ib |   | - - 2 - |
+//! | j k l |                     | - - - 3 |
+//! ```
+//!
+//! Here, the next output starts back at the original output location,
+//! so the output matrix will not be filled. Extending the matrix to
+//! be a larger multiple of 4 will not help, either.
+//!
+//! If the number of rows in the transform matrix is n, and the number
+//! of columns in the input and output matrices is c, then:
+//!
+//! * if n = 1, then c can be any positive value;
+//! * if n > 1, then c is conditional on gcd(n,c) != n != c
+//!
+//! Note the additional condition which I didn't mention
+//! above. Basically if n is a multiple of c or c is a multiple of n,
+//! the wrap-around will not work properly.
 //!
 //! # Bytewise Simulation
 //!
@@ -28,6 +75,25 @@
 //! [MultipyStream](struct.MultipyStream.html).
 //!
 //! # SIMD Simulation 
+//!
+//! The second simulation changes from byte-wise reading from matrices
+//! with simd-wise reading.
+//!
+//! * reimplement versions of the transform and input matrices
+//! * reuse original output matrix
+//! * new generic Simd trait
+//! * concrete SimSimd implementation using `\[u8; 8\]` as its vector type
+//! * matrices being read from implement Iterator<Item=SimSimd>
+//! * separate function `simsimd_warm_multiply()` using the above
+//!
+//! The main reason for reimplementing the two matrix types is that
+//! the existing ones already implement [Iterator], and it's not
+//! possible to reimplement it using a different [Iterator::Item]
+//! type.
+//!
+//! The implementation of Simd and matrix multiply in the crate's main
+//! module and SIMD code in the architecture-dependent modules follow
+//! the same general design as above.
 
 // Wrap-around reads/multiplies on matrices
 //

@@ -42,14 +42,11 @@
 //!
 //! # Software Simulation Feature
 //!
-//! I've implemented a pure Rust version of the matrix multiplication
-//! code. It uses the same basic idea as the optimised versions,
-//! although for clarity, it works a byte at a time instead of
-//! simulating SIMD multiplication on 8 or 16 bytes at a time.
-//!
+//! I've implemented two Rust version of the matrix multiplication
+//! code. See the simulator module for details.
 //! 
-//!
-//!
+//! The overall organisation of the main functionality of this crate
+//! is modelled on the second simulation (SIMD version).
 //!
 
 
@@ -140,6 +137,7 @@ pub mod arm_vmull;
 #[cfg(feature = "simulator")]
 pub mod simulator;
 
+/// Greatest Common Divisor for two integers
 pub fn gcd(mut a : usize, mut b : usize) -> usize {
   let mut t;
     loop {
@@ -150,30 +148,35 @@ pub fn gcd(mut a : usize, mut b : usize) -> usize {
     }
 }
 
+/// Greatest Common Divisor for three integers
 pub fn gcd3(a : usize, b : usize, c: usize) -> usize {
     gcd(a, gcd(b,c))
 }
 
+/// Greatest Common Divisor for four integers
 pub fn gcd4(a : usize, b : usize, c: usize, d : usize) -> usize {
     gcd(gcd(a,b), gcd(c,d))
 }
 
+/// Least Common Multiple for two integers
 pub fn lcm(a : usize, b : usize) -> usize {
     (a / gcd(a,b)) * b
 }
 
+/// Least Common Multiple for three integers
 pub fn lcm3(a : usize, b : usize, c: usize) -> usize {
     lcm( lcm(a,b), c)
 }
 
+/// Least Common Multiple for four integers
 pub fn lcm4(a : usize, b : usize, c: usize, d : usize) -> usize {
     lcm( lcm(a,b), lcm(c,d) )
 }
 
-// SIMD support, based on `simulator` module
-
-// This trait will be in main module and will have to be implemented
-// for each architecture
+/// SIMD support, based on `simulator` module
+///
+/// This trait will be in main module and will have to be implemented
+/// for each architecture
 pub trait Simd {
     type E : std::fmt::Display;			// elemental type, eg u8
     type V;			// vector type, eg [u8; 8]
@@ -199,19 +202,24 @@ pub trait Simd {
 
 // Make it generic on S : Simd, because the iterator returns values of
 // that type.
+
+/// Trait for a matrix that supports Simd iteration
 pub trait SimdMatrix<S : Simd> {
     // const IS_ROWWISE : bool;
     // fn is_rowwise(&self) -> bool { Self::IS_ROWWISE }
 
     // size (in bits) of simd vector 
-    const SIMD_SIZE : usize;
+    // const SIMD_SIZE : usize;
 
     // required methods
     fn is_rowwise(&self) -> bool;
     fn rows(&self) -> usize;
     fn cols(&self) -> usize;
+
+    /// Wrap-around read of matrix, returning a Simd vector type
     unsafe fn read_next(&mut self) -> S;
-    fn write_next(&mut self, val : S::E); // write along diagonal
+    /// Wrap-around diagonal write of (output) matrix
+    fn write_next(&mut self, val : S::E);
     fn indexed_write(&mut self, index : usize, elem : S::E);
     fn as_mut_slice(&mut self) -> &mut [S::E];
     fn as_slice(&self) -> &[S::E];
@@ -256,7 +264,11 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
 
     // searching for prime factors ... needs more work?
     // use debug_assert since division is often costly
-    if k != 1 { debug_assert_ne!(k, gcd(k,c)) }
+    if n > 1 {
+	let denominator = gcd(n,c);
+	debug_assert_ne!(n, denominator);
+	debug_assert_ne!(c, denominator);
+    }
     
     // algorithm not so trivial any more, but still quite simple
     let mut dp_counter  = 0;
@@ -339,12 +351,16 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
 }
 
 
-// reference matrix multiply, doesn't use SIMD at all
-pub fn matrix_multiply<S : Simd + Copy, G>(
+/// Reference matrix multiply. Doesn't use SIMD at all, but uses
+/// generic Simd types to be compatible with actual Simd
+/// implementations. Note that this multiply routine does not check
+/// the gcd condition so it can be used to multiply matrices of
+/// arbitrary sizes.
+pub fn reference_matrix_multiply<S : Simd + Copy, G>(
     xform  : &mut impl SimdMatrix<S>,
     input  : &mut impl SimdMatrix<S>,
     output : &mut impl SimdMatrix<S>,
-    field : G)
+    field  : &G)
 where G : GaloisField,
 <S as Simd>::E: From<<G as GaloisField>::E> + Copy,
 <G as GaloisField>::E: From<<S as Simd>::E> + Copy
@@ -385,6 +401,18 @@ where G : GaloisField,
     }
 }
 
+// TODO: make a NoSimd : Simd type and associated matrix types
+//
+// Right now, the only concrete implementation of these is in the x86
+// crate. I should have types available here that can still use
+// simd_warm_multiply (with simulated SIMD) or
+// reference_matrix_multiply().
+//
+// AND/OR: an ArchSimd : Simd type and associated matrix types
+//
+// If the appropriate arch is available and (if needed) one of the
+// arch-specific features are enabled, this wrapper layer will call
+// them. If they're not, we'll get pure-Rust fallback implementations.
 
 #[cfg(test)]
 mod tests {
