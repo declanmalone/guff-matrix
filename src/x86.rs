@@ -367,9 +367,9 @@ impl Simd for X86u8x16Long0x11b {
     type V = __m128i;
     const SIMD_BYTES : usize = 16;
 
-    // #[inline(always)]
+    #[inline(always)]
     fn zero_element() -> Self::E { 0u8.into() }
-    // #[inline(always)]
+    #[inline(always)]
     fn add_elements(a : Self::E, b : Self::E) -> Self::E { (a ^ b).into() }
     
     // #[inline(always)]
@@ -485,8 +485,8 @@ pub struct X86SimpleMatrix<S : Simd> {
     mods   : usize,		// counter mod size of array
     
     // to implement write_next
-    or : usize,
-    oc : usize,
+    // or : usize,
+    // oc : usize,
 
     // to implement regular matrix stuff
     rows : usize,
@@ -503,8 +503,8 @@ impl X86SimpleMatrix<X86u8x16Long0x11b> {
 	    panic!("This SIMD matrix implementation can't handle rows * cols < 16 bytes");
 	}
 
-	let or = 0;
-	let oc = 0;
+	// let or = 0;
+	// let oc = 0;
 	let ra = 0;
 	let rp = 0;
 	let mods = 0;
@@ -521,7 +521,7 @@ impl X86SimpleMatrix<X86u8x16Long0x11b> {
 
 	X86SimpleMatrix::<X86u8x16Long0x11b> {
 	    rows, cols, is_rowwise, array,
-	    reg, rp, ra, or, oc, mods
+	    reg, rp, ra, mods
 	}
     }
 
@@ -840,6 +840,7 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	// eprintln!("returning {:x?}", ret.vec);
 	ret
     }
+    /* Removing this because it can go into matrix multiply
     fn write_next(&mut self, e : u8) {
 
 	let or = self.or;
@@ -852,6 +853,7 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	self.oc = if oc + 1 < self.cols { oc + 1 } else { 0 };
 
     }
+     */
 }
 
 

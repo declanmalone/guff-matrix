@@ -219,7 +219,7 @@ pub trait SimdMatrix<S : Simd> {
     /// Wrap-around read of matrix, returning a Simd vector type
     unsafe fn read_next(&mut self) -> S;
     /// Wrap-around diagonal write of (output) matrix
-    fn write_next(&mut self, val : S::E);
+    // fn write_next(&mut self, val : S::E);
     fn indexed_write(&mut self, index : usize, elem : S::E);
     fn as_mut_slice(&mut self) -> &mut [S::E];
     fn as_slice(&self) -> &[S::E];
@@ -269,13 +269,15 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
 	debug_assert_ne!(n, denominator);
 	debug_assert_ne!(c, denominator);
     }
-    
+
     // algorithm not so trivial any more, but still quite simple
     let mut dp_counter  = 0;
     let mut sum         = S::zero_element();
     let simd_width = S::SIMD_BYTES;
-    
-    // we don't have mstream any more since we handle it ourselves
+
+    // we handle or and oc (was in matrix class)
+    let mut or : usize = 0;
+    let mut oc : usize = 0;
 
     // read ahead two products
     let mut i0 : S;
@@ -343,7 +345,13 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
 
 	// sum now has a full dot product
 	// eprintln!("Sum: {}", sum);
-        output.write_next(sum);
+
+	// handle writing and incrementing or, oc
+	let write_index = output.rowcol_to_index(or,oc);
+        output.indexed_write(write_index,sum);
+	or = if or + 1 < output.rows() { or + 1 } else { 0 };
+	oc = if oc + 1 < output.cols() { oc + 1 } else { 0 };
+
         sum = S::zero_element();
         dp_counter = 0;
 	total_dps += 1;
@@ -413,6 +421,8 @@ where G : GaloisField,
 // If the appropriate arch is available and (if needed) one of the
 // arch-specific features are enabled, this wrapper layer will call
 // them. If they're not, we'll get pure-Rust fallback implementations.
+
+
 
 #[cfg(test)]
 mod tests {
