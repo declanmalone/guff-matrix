@@ -278,6 +278,8 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
     // we handle or and oc (was in matrix class)
     let mut or : usize = 0;
     let mut oc : usize = 0;
+    let orows = output.rows();
+    let ocols = output.cols();
 
     // read ahead two products
     let mut i0 : S;
@@ -294,7 +296,7 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
     let mut offset_mod_simd = 0;
     let mut total_dps = 0;
     let target = n * c;		// number of dot products
-    
+
     while total_dps < target {
 
 	// at top of loop we should always have m0, m1 full
@@ -349,8 +351,8 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
 	// handle writing and incrementing or, oc
 	let write_index = output.rowcol_to_index(or,oc);
         output.indexed_write(write_index,sum);
-	or = if or + 1 < output.rows() { or + 1 } else { 0 };
-	oc = if oc + 1 < output.cols() { oc + 1 } else { 0 };
+	or = if or + 1 < orows { or + 1 } else { 0 };
+	oc = if oc + 1 < ocols { oc + 1 } else { 0 };
 
         sum = S::zero_element();
         dp_counter = 0;
@@ -430,7 +432,8 @@ mod tests {
     use super::*;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     use super::x86::*;
-    
+    use guff::{GaloisField, new_gf8};
+
     #[test]
     fn all_primes_lcm() {
 	assert_eq!(lcm(2,7), 2 * 7);
@@ -564,6 +567,110 @@ mod tests {
 	    simd_warm_multiply(&mut transform, &mut input, &mut output);
 	    // array has padding, so don't compare that
 	    assert_eq!(output.array[0..9*17], vec);
+	}
+    }
+
+    #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    // test taken from simulator.rs
+    fn simd_double_identity() {
+	// seems like lower half of matrix not being output
+	// copy identity matrix down there to test
+	unsafe {
+	    let double_identity = [
+		1,0,0, 0,0,0, 0,0,0,
+		0,1,0, 0,0,0, 0,0,0,
+		0,0,1, 0,0,0, 0,0,0,
+		0,0,0, 1,0,0, 0,0,0,
+		0,0,0, 0,1,0, 0,0,0,
+		0,0,0, 0,0,1, 0,0,0,
+		0,0,0, 0,0,0, 1,0,0,
+		0,0,0, 0,0,0, 0,1,0,
+		0,0,0, 0,0,0, 0,0,1,
+		1,0,0, 0,0,0, 0,0,0,
+		0,1,0, 0,0,0, 0,0,0,
+		0,0,1, 0,0,0, 0,0,0,
+		0,0,0, 1,0,0, 0,0,0,
+		0,0,0, 0,1,0, 0,0,0,
+		0,0,0, 0,0,1, 0,0,0,
+		0,0,0, 0,0,0, 1,0,0,
+		0,0,0, 0,0,0, 0,1,0,
+		0,0,0, 0,0,0, 0,0,1,
+	    ];
+	    let mut transform =	// mut because of iterator
+		X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(18,9,true);
+	    transform.fill(&double_identity[..]);
+
+	    // 17 is coprime to 9
+	    let mut input =
+		X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,17,false);
+	    let vec : Vec<u8> = (1u8..=9 * 17).collect();
+	    input.fill(&vec[..]);
+
+	    let mut output =
+		X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(18,17,true);
+
+	    // works if output is stored in colwise format
+	    simd_warm_multiply(&mut transform, &mut input, &mut output);
+
+	    eprintln!("output has size {}", output.size());
+	    eprintln!("vec has size {}", vec.len());
+	    let output_slice = output.as_slice();
+	    let mut chunks = output_slice.chunks(9 * 17);
+
+	    // can't compare with vec without interleaving, but we can
+	    // compare halves:
+	    let chunk1 = chunks.next();
+	    let chunk2 = chunks.next();
+	    assert_eq!(chunk1, chunk2);
+
+	    // for (which, chunk) in chunks.enumerate() {
+	    // 	eprintln!("chunk {} has size {}", which, chunk.len());
+	    // 	assert_ne!(which, 2); // enumerate only 0, 1
+	    // 	if which == 1 { assert_eq!(chunk, vec)};
+	    // }
+	}
+    }
+
+    // test conformance with a variety of matrix sizes
+    #[test]
+    fn test_ref_simd_conformance() {
+
+	let cols = 19;
+	for k in 4..9 {
+	    for n in 4..17 {
+		eprintln!("testing n={}, k={}", n, k);
+		unsafe {
+		    let mut transform =	// mut because of iterator
+			X86SimpleMatrix::<x86::X86u8x16Long0x11b>
+			::new(n,k,true);
+		    let mut input =
+			X86SimpleMatrix::<x86::X86u8x16Long0x11b>
+			::new(k,cols,false);
+
+		    transform.fill(&(1u8..).take(n*k).collect::<Vec<u8>>()[..]);
+		    input.fill(&(1u8..).take(k*cols).collect::<Vec<u8>>()[..]);
+
+		    let mut ref_output =
+			X86SimpleMatrix::<x86::X86u8x16Long0x11b>
+			::new(n,cols,true);
+
+		    let mut simd_output =
+			X86SimpleMatrix::<x86::X86u8x16Long0x11b>
+			::new(n,cols,true);
+
+		    // do multiply both ways
+		    simd_warm_multiply(&mut transform, &mut input,
+				       &mut ref_output);
+		    reference_matrix_multiply(&mut transform,
+					      &mut input,
+					      &mut simd_output,
+					      &new_gf8(0x11b, 0x1b));
+
+		    assert_eq!(ref_output.as_slice(),
+			       simd_output.as_slice());
+		}
+	    }
 	}
     }
 }

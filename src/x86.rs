@@ -645,8 +645,11 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 
     //const SIMD_SIZE : usize = 128;
 
+    #[inline(always)]
     fn rows(&self) -> usize { self.rows }
+    #[inline(always)]
     fn cols(&self) -> usize { self.cols }
+    #[inline(always)]
     fn is_rowwise(&self) -> bool { self.is_rowwise }
 
     fn as_slice(&self) -> &[u8] {
@@ -654,6 +657,7 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	&self.array[0..size]
     }
 
+    #[inline(always)]
     fn indexed_write(&mut self, index : usize, elem : u8) {
 	self.array[index] = elem;
     }
