@@ -1267,12 +1267,13 @@ mod tests {
 	unsafe {
 
 	    // do this in a loop that tests all pathways in code
-	    // lcm(21,16) = 21 * 16. Do +1 to check proper restart
+	    // lcm(21,16) = 21 * 16. Do *2 +1 to check proper restart
 
-	    for _ in 0..21*16 + 1 {
+	    for _ in 0..21*16 * 2 + 1 {
 	    
 		// load up expected value
-		let addr = array_ptr.offset(index) as *const std::arch::x86_64::__m128i;
+		let addr = array_ptr.offset(index)
+		    as *const std::arch::x86_64::__m128i;
 		let expect =  _mm_lddqu_si128(addr);
 
 		index += 16;
@@ -1280,10 +1281,62 @@ mod tests {
 
 		let mat_read = mat.read_next();
 
-		assert_eq!(format!("{:x?}",mat_read.vec), format!("{:x?}",expect));
+		assert_eq!(format!("{:x?}",mat_read.vec),
+			   format!("{:x?}",expect));
 	    }
 	}
     }
 
+    // More thorough testing of read_next with a variety of matrix sizes
+    #[test]
+    fn test_read_next_cycles() {
 
+	let mut errors = 0;
+	for rows in 4..18 {
+	    for cols in 4..23 {
+
+		// no restrictions on how many cols, since we're only
+		// calling read_next, not doing matrix multiply
+		let size = rows * cols;
+		let mut mat = X86SimpleMatrix::<X86u8x16Long0x11b>
+		    ::new(rows, cols, true);
+
+		let fill_list = (1u8..=255).cycle().take(size);
+		let fill_vec : Vec<u8> = fill_list.collect();
+
+		eprintln!("filling matrix with {} bytes", fill_vec.len());
+		mat.fill(&fill_vec[..]);
+
+		let mut ref_list = (1u8..=255).cycle().take(size).cycle();
+		let mut ref_vec = [0u8; 16];
+
+		for i in 0 .. size {
+		    unsafe {
+			let from_mat = mat.read_next();
+			for i in 0..16 {
+			    ref_vec[i] = ref_list.next().unwrap();
+			}
+			let addr = ref_vec.as_ptr()
+			    as *const std::arch::x86_64::__m128i;
+			let expect =  _mm_lddqu_si128(addr);
+
+			let fmt_ref = format!("{:x?}",expect);
+			let fmt_mat = format!("{:x?}",from_mat.vec);
+
+			if fmt_mat != fmt_ref {
+			    eprintln!("read_next() failed");
+			    eprintln!("Matrix {} rows x {} columns ",
+				      rows, cols);
+			    eprintln!("Got {} != ref {} at position {}",
+				      fmt_mat, fmt_ref, i);
+			    errors += 1;
+			}
+		    }
+		}
+	    }
+	}
+	if errors > 0 {
+	    panic!("Failing test: {} errors", errors);
+	}
+    }
 }

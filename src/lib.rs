@@ -393,7 +393,7 @@ where G : GaloisField,
     let input_array  = input.as_slice();
     // let mut output_array = output.as_mut_slice();
 
-    for row in 0..k {
+    for row in 0..n {
 	for col in 0..c {
 	    let xform_index  = xform.rowcol_to_index(row,0);
 	    let input_index  = input.rowcol_to_index(0,col);
@@ -661,14 +661,14 @@ mod tests {
 
 		    // do multiply both ways
 		    simd_warm_multiply(&mut transform, &mut input,
-				       &mut ref_output);
+				       &mut simd_output);
 		    reference_matrix_multiply(&mut transform,
 					      &mut input,
-					      &mut simd_output,
+					      &mut ref_output,
 					      &new_gf8(0x11b, 0x1b));
 
-		    assert_eq!(ref_output.as_slice(),
-			       simd_output.as_slice());
+		    assert_eq!(format!("{:x?}", ref_output.as_slice()),
+			       format!("{:x?}", simd_output.as_slice()));
 		}
 	    }
 	}
