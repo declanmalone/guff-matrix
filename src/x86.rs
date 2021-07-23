@@ -533,13 +533,7 @@ impl X86SimpleMatrix<X86u8x16Long0x11b> {
 	}
 	self.array[0..size].copy_from_slice(data);
 
-	unsafe {
-	    self.reg = X86u8x16Long0x11b { vec :_mm_setzero_si128() };
-	}
-
-	self.ra  = 0; 		// read-ahead amount
-	self.rp = 0;
-	self.mods = 0;
+	self.reset();
     }
 
     // convenience
@@ -665,6 +659,15 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
     fn as_mut_slice(&mut self) -> &mut [u8] {
 	let size = self.size();
 	&mut self.array[0..size]
+    }
+
+    fn reset(&mut self) {
+	unsafe {
+	    self.reg = X86u8x16Long0x11b { vec :_mm_setzero_si128() };
+	}
+	self.ra  = 0; 		// read-ahead amount
+	self.rp = 0;
+	self.mods = 0;
     }
 
     // this needs more work

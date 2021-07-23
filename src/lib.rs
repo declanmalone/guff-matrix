@@ -216,6 +216,15 @@ pub trait SimdMatrix<S : Simd> {
     fn rows(&self) -> usize;
     fn cols(&self) -> usize;
 
+    // reset read_next state
+    //
+    // When called in a loop, input matrices will generally have new
+    // data in them, but xform will continue being the same. This
+    // means that re-using the xform can/will result in the
+    // read_next() state being wrong. It doesn't matter so much for
+    // input matrix, since fill() should reset state to zero.
+    fn reset(&mut self);
+
     /// Wrap-around read of matrix, returning a Simd vector type
     unsafe fn read_next(&mut self) -> S;
     /// Wrap-around diagonal write of (output) matrix
@@ -281,7 +290,12 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
     let orows = output.rows();
     let ocols = output.cols();
 
+    // reset read_next state in case matrices reused for multiply
+    xform.reset();
+    input.reset();
+
     // read ahead two products
+
     let mut i0 : S;
     let mut x0 : S;
 
