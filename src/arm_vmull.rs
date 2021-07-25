@@ -169,6 +169,7 @@ pub trait ArmSimd {
 // I think that the reason is that I saw that it wasn't inlining
 // properly, even with the inline directive. 
 
+#[derive(Sized,Debug,Display)]
 pub struct VmullEngine8x8 {
     vec : uint8x8_t,
 }
