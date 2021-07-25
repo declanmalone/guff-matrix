@@ -231,11 +231,28 @@ impl VmullEngine8x8 {
     }
 
     // lo is current time, hi is in the future
-    unsafe fn extract_from_offset(hi : Self, lo : Self, missing : usize)
+    // extracts 8 bytes. Do I need extract_n_from_offset? Maybe.
+    unsafe fn extract_from_offset(lo: Self, hi : Self, offset : usize)
 				  -> Self {
-	hi
+	debug_assert!(offset < 8);
+	let tbl2 = uint8x8x2_t ( lo.vec, hi.vec );
+	let mut mask = transmute( [0u8,1,2,3,4,5,6,7] ); // null rotate mask
+	let add_amount = vmov_n_u8(offset as u8);
+	mask = vadd_u8(mask, add_amount);
+	vtbl2_u8(tbl2, mask).into()	
     }
 
+    unsafe fn splat(elem : u8) -> Self {
+	vmov_n_u8(elem).into()
+    }
+    
+    unsafe fn mask_start_elements(v : Self, count : usize) -> Self {
+	debug_assert!(count > 0);
+	let mask = Self::shift_right(Self::splat(0xff),
+				     (8usize - count).into());
+	vand_u8(v.vec, mask.vec).into()	
+    }
+    
 }
 
 // Type conversion is very useful
@@ -318,7 +335,7 @@ impl ArmSimd for VmullEngine8x8 {
 	// * rotate r0 left by missing (move bytes to top)
 	// * extract 8 bytes from {r1:r0} at offset (missing -8)
 	r0 = Self::rotate_left(r0.into(), missing as usize);
-	r0 = Self::extract_from_offset(r1,r0,missing as usize - 8);
+	r0 = Self::extract_from_offset(r0, r1, missing as usize - 8);
 
 	// To get updated r1 (with missing bytes removed), either:
 	// * right shift by missing
@@ -340,6 +357,17 @@ impl ArmSimd for VmullEngine8x8 {
 	//
 	// I'll pause here and implement basic shifts, rotates and
 	// masks, then test them.
+	//
+	// Actually, second thoughts on masks ... it's actually not so
+	// difficult:
+	// * splat 0xff to all lanes
+	// * shift left or right using:
+	// ** [0..simd_width - 1] as initial mask
+	// ** add desired shift to all lanes (+ve: shift right)
+	// ** use vtbl1 to shift
+	//
+	// With this, it's easy enough to select or blank (with
+	// negated mask) a number of bytes at the start/end.
 
 	(r0, None)
     }
@@ -354,8 +382,8 @@ impl ArmSimd for VmullEngine8x8 {
 //			      poly8x8_t *a, poly8x8_t *b) {
 
 // TODO: make this (or a wrapping function) return a poly8x8_t
-pub fn simd_mull_reduce_poly8x8(result : *mut u8,
-			 a : &poly8x8_t, b: &poly8x8_t) {
+pub fn simd_mull_reduce_poly8x8(a : &poly8x8_t, b: &poly8x8_t)
+				-> poly8x8_t {
 
     unsafe {
 	// // do non-modular poly multiply
@@ -443,7 +471,8 @@ pub fn simd_mull_reduce_poly8x8(result : *mut u8,
 	// use narrowing mov to send back result
 	//  *result = (poly8x8_t) vmovn_u16((uint16x8_t) working);
 	let narrowed : uint8x8_t = vmovn_u16(vreinterpretq_u16_p16(working));
-	vst1_u8(result, narrowed);	
+	//	vst1_u8(result, narrowed);
+	vreinterpret_p8_u8(narrowed)
     }
 }
 
@@ -455,7 +484,7 @@ mod tests {
 
     #[test]
     fn test_mull_reduce_poly8x8() {
-	let mut fails = 0;
+	// let mut fails = 0;
 	let a_array = [0u8,10,20,30,40,50,60,70];
 	let b_array = [8u8,9,10,11,12,13,14,15];
 	let a : poly8x8_t;
@@ -469,8 +498,10 @@ mod tests {
 	let mut result : Vec<u8> = vec![0;8];
 
 	let f = new_gf8(0x11b, 0x1b);
-	simd_mull_reduce_poly8x8(result.as_mut_ptr(), &a, &b);
-
+	let got_poly = simd_mull_reduce_poly8x8(&a, &b);
+	unsafe {
+	    vst1_p8(result.as_mut_ptr(), got_poly);
+	}
 	for i in 0 .. 8 {
 	    let got    = result[i];
 	    let expect = f.mul(a_array[i], b_array[i]);
@@ -540,7 +571,67 @@ mod tests {
 	}
     }
 
-    
+    // extract_from_offset
 
+    #[test]
+    fn test_extract_from_offset() {
+	unsafe {
+	    let r0 : uint8x8_t = transmute([1u8, 2,4,8,16,32,64,128]);
+	    let r1 : uint8x8_t = transmute([1u8, 2,3,4,5,6,7,8]);
+
+	    // expected results
+	    let off_1 : uint8x8_t = transmute([2u8,4,8,16,32,64,128,1]);
+
+	    let res = VmullEngine8x8::extract_from_offset(r0.into(), r1.into(), 0);
+	    assert_eq!(format!("{:x?}", r0),
+		       format!("{:x?}", res.vec));
+
+	    let res = VmullEngine8x8::extract_from_offset(r0.into(), r1.into(), 1);
+	    assert_eq!(format!("{:x?}", off_1),
+		       format!("{:x?}", res.vec));
+	}
+    }
+
+    #[test]
+    fn test_splat() {
+	unsafe {
+	    let expect : uint8x8_t = transmute([42u8,42,42,42, 42,42,42,42]);
+	    let got = VmullEngine8x8::splat(42);
+	    assert_eq!(format!("{:x?}", expect),
+		       format!("{:x?}", got.vec));
+	}
+    }
+
+    #[test]
+    fn test_mask_start_elements() {
+	unsafe {
+	    let input : uint8x8_t = transmute([42u8,42,42,42, 42,42,42,42]);
+	    let expect_1 : uint8x8_t = transmute([42u8,0 ,0 ,0 , 0 ,0 ,0 ,0 ]);
+	    let expect_2 : uint8x8_t = transmute([42u8,42,0 ,0 , 0 ,0 ,0 ,0 ]);
+	    let expect_3 : uint8x8_t = transmute([42u8,42,42,0 , 0 ,0 ,0 ,0 ]);
+	    let expect_7 : uint8x8_t = transmute([42u8,42,42,42, 42,42,42,0 ]);
+	    let expect_8 : uint8x8_t = transmute([42u8,42,42,42, 42,42,42,42]);
+
+	    let got = VmullEngine8x8::mask_start_elements(input.into(),1);
+	    assert_eq!(format!("{:x?}", expect_1),
+		       format!("{:x?}", got.vec));
+
+	    let got = VmullEngine8x8::mask_start_elements(input.into(),2);
+	    assert_eq!(format!("{:x?}", expect_2),
+		       format!("{:x?}", got.vec));
+
+	    let got = VmullEngine8x8::mask_start_elements(input.into(),3);
+	    assert_eq!(format!("{:x?}", expect_3),
+		       format!("{:x?}", got.vec));
+
+	    let got = VmullEngine8x8::mask_start_elements(input.into(),7);
+	    assert_eq!(format!("{:x?}", expect_7),
+		       format!("{:x?}", got.vec));
+
+	    let got = VmullEngine8x8::mask_start_elements(input.into(),8);
+	    assert_eq!(format!("{:x?}", expect_8),
+		       format!("{:x?}", got.vec));
+	}
+    }
 
 }
