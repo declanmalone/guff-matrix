@@ -150,14 +150,14 @@ pub trait ArmSimd {
     // Need to think about boundary condition... should it be on
     // beyond, or on the end of the matrix? Just be consistent.
     
-    unsafe fn non_wrapping_read(read_ptr : *Self::E,
-				beyond   : *Self::E
+    unsafe fn non_wrapping_read(read_ptr :  const* Self::E,
+				beyond   :  const* Self::E
     ) -> Option<Self>; // None if read_ptr + SIMD_BYTES >= beyond
 
     // And a version that wraps around matrix boundary
-    unsafe fn wrapping_read(read_ptr : *Self::E,
-			    beyond   : *Self::E,
-			    restart  : *Self::E
+    unsafe fn wrapping_read(read_ptr : const* Self::E,
+			    beyond   : const* Self::E,
+			    restart  : const* Self::E
     ) -> (Self, Option<Self>); // if non-wrapping fails
 
     // 
@@ -209,20 +209,25 @@ impl From<poly8x8_t> for VmullEngine8x8 {
 // should just translate other.into() as self.from().
 
 // Do I want a bunch more foreign implementations on wide forms, eg:
-impl From<uint16x8_t> for poly16x8_t {
-   fn from(other : uint16x8_t) {
-	unsafe {
-	    vreinterpretq_p16_u16(other)
-	}
-    }
-}
-impl From<poly16x8_t> for uint16x8_t {
-   fn from(other : poly16x8_t) {
-	unsafe {
-	    vreinterpretq_u16_p16(other)
-	}
-    }
-}
+//
+// (actually, not allowed unless I make my own types; not sure if type
+// aliases count, but I'm not going to bother trying that now)
+//
+// impl From<uint16x8_t> for poly16x8_t {
+//    fn from(other : uint16x8_t) {
+// 	unsafe {
+// 	    vreinterpretq_p16_u16(other)
+// 	}
+//     }
+// }
+// impl From<poly16x8_t> for uint16x8_t {
+//    fn from(other : poly16x8_t) {
+// 	unsafe {
+// 	    vreinterpretq_u16_p16(other)
+// 	}
+//     }
+// }
+
 
 impl ArmSimd for VmullEngine8x8 {
     type V = poly8x8_t;
@@ -276,9 +281,13 @@ pub fn simd_mull_reduce_poly8x8(result : *mut u8,
 	// Next, have to convert u8 to u16, shifting left 4 bits
 	//  poly16x8_t widened = (poly16x8_t) vmovl_u8(lut);
 
-	// try out foreign from/into:
-	// let mut widened : poly16x8_t = vreinterpretq_p16_u16(vmovl_u8(lut));
-	let mut widened : poly16x8_t = (vmovl_u8(lut)).into();
+	// try out foreign from/into: (ah, doesn't work; I'd have to
+	// wrap foreign types in my own newtype)
+	//
+	// let mut widened : poly16x8_t = (vmovl_u8(lut)).into();
+	//
+	
+	let mut widened : poly16x8_t = vreinterpretq_p16_u16(vmovl_u8(lut));
 
 	// uint16x8_t vshlq_n_u16 (uint16x8_t, const int)
 	// Form of expected instruction(s): vshl.i16 q0, q0, #0
