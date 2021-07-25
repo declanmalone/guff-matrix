@@ -232,7 +232,7 @@ impl VmullEngine8x8 {
 
     // lo is current time, hi is in the future
     // extracts 8 bytes. Do I need extract_n_from_offset? Maybe.
-    unsafe fn extract_from_offset(lo: Self, hi : Self, offset : usize)
+    unsafe fn extract_from_offset(lo: &Self, hi : &Self, offset : usize)
 				  -> Self {
 	debug_assert!(offset < 8);
 	let tbl2 = uint8x8x2_t ( lo.vec, hi.vec );
@@ -253,14 +253,24 @@ impl VmullEngine8x8 {
 	vand_u8(v.vec, mask.vec).into()	
     }
     
+    unsafe fn mask_end_elements(v : Self, count : usize) -> Self {
+	debug_assert!(count > 0);
+	let mask = Self::shift_left(Self::splat(0xff),
+				    (8usize - count).into());
+	vand_u8(v.vec, mask.vec).into()	
+    }
+
+    // no need for negated forms of the above because
+    // negative_mask_start_elements(v,x) would be the same as
+    // mask_end_elements(v,8-x).
+
+    
 }
 
 // Type conversion is very useful
 impl From<uint8x8_t> for VmullEngine8x8 {
     fn from(other : uint8x8_t) -> Self {
-	unsafe {
-	    Self { vec : other }
-	}
+	Self { vec : other }
     }
 }
 impl From<poly8x8_t> for VmullEngine8x8 {
@@ -302,6 +312,12 @@ impl ArmSimd for VmullEngine8x8 {
 
     // caller is responsible for tracking read_ptr
 
+    // the read_next routine in the x86 module is really terrible. The
+    // code below isn't too bad, but I think I should be passing in a
+    // "required" field, which will be 8 - the current the read-ahead
+    // buffer size. In any event, I'll need to think a bit about the
+    // cleanest way to handle it...
+    
     unsafe fn non_wrapping_read(read_ptr :  *const Self::E,
 				beyond   :  *const Self::E
     ) -> Option<Self> {
@@ -319,23 +335,24 @@ impl ArmSimd for VmullEngine8x8 {
 
 	let missing : isize
 	    = (read_ptr.offset(Self::SIMD_BYTES as isize)).offset_from(beyond);
-	debug_assert!(missing > 0);
+	debug_assert!(missing >= 0);
 
-	// get 8 - missing from end
+	// get 8 - missing from end of stream
 	let mut r0 = Self::read_simd(read_ptr);
 
+	// 
 	if missing == 0 {
 	    return (r0.into(), None);
 	}
 
-	// get missing from start
-	let mut r1 = Self::read_simd(restart);
+	// get missing from start of stream
+	let r1 = Self::read_simd(restart);
 
 	// Two steps to combine...
-	// * rotate r0 left by missing (move bytes to top)
+	// * shift r0 left by missing (move bytes to top)
 	// * extract 8 bytes from {r1:r0} at offset (missing -8)
-	r0 = Self::rotate_left(r0.into(), missing as usize);
-	r0 = Self::extract_from_offset(r0, r1, missing as usize - 8);
+	r0 = Self::shift_left(r0.into(), missing as usize);
+	r0 = Self::extract_from_offset(&r0, &r1, missing as usize - 8);
 
 	// To get updated r1 (with missing bytes removed), either:
 	// * right shift by missing
@@ -369,7 +386,32 @@ impl ArmSimd for VmullEngine8x8 {
 	// With this, it's easy enough to select or blank (with
 	// negated mask) a number of bytes at the start/end.
 
-	(r0, None)
+	// One more thought ... this Simd engine is based on 64-bit
+	// registers, but the only part that actually needs to be
+	// 64-bit is the multiply routine (thanks to vmull being a
+	// widening operation). At least, I think that's the case.
+	// Maybe some vtbl instructions are missing?
+	//
+	// Anyhow, if the multiply is the only thing that is
+	// restricted, I can drop down and do two 64-by-64
+	// multiplications when needed, but continue to use 128-wide
+	// instructions elsewhere. I'd have to copy/paste a lot of
+	// code and edit it (as opposed to trying to make a generic
+	// version) because the mnemonics/intrinsics are going to be
+	// different. Although, I could add another (thin) translation
+	// layer to map general names like load_u8_data (better:
+	// load_elements) to to the appropriate 64-bit/128-bit load
+	// intrinsics.
+
+	// Anyway, back to where I left off:
+	
+	// To get updated r1 (with missing bytes removed), either:
+	// * right shift by missing
+	// * mask out lower missing bytes
+
+	// I'm going to go with masking, so the read-ahead will always
+	// be in the high bytes of the vector.
+	(r0, Some(Self::mask_end_elements(r1, 8 - missing as usize)))
     }
 
 }
@@ -475,6 +517,9 @@ pub fn simd_mull_reduce_poly8x8(a : &poly8x8_t, b: &poly8x8_t)
 	vreinterpret_p8_u8(narrowed)
     }
 }
+
+
+
 
 #[cfg(test)]
 
@@ -582,11 +627,11 @@ mod tests {
 	    // expected results
 	    let off_1 : uint8x8_t = transmute([2u8,4,8,16,32,64,128,1]);
 
-	    let res = VmullEngine8x8::extract_from_offset(r0.into(), r1.into(), 0);
+	    let res = VmullEngine8x8::extract_from_offset(&r0.into(), &r1.into(), 0);
 	    assert_eq!(format!("{:x?}", r0),
 		       format!("{:x?}", res.vec));
 
-	    let res = VmullEngine8x8::extract_from_offset(r0.into(), r1.into(), 1);
+	    let res = VmullEngine8x8::extract_from_offset(&r0.into(), &r1.into(), 1);
 	    assert_eq!(format!("{:x?}", off_1),
 		       format!("{:x?}", res.vec));
 	}
@@ -634,4 +679,115 @@ mod tests {
 	}
     }
 
+    #[test]
+    fn test_mask_end_elements() {
+	unsafe {
+	    let input : uint8x8_t = transmute([42u8,42,42,42, 42,42,42,42]);
+	    let expect_1 : uint8x8_t = transmute([0u8 ,0 ,0 ,0 , 0 ,0 ,0 ,42 ]);
+	    let expect_2 : uint8x8_t = transmute([0u8 ,0 ,0 ,0 , 0 ,0 ,42,42 ]);
+	    let expect_3 : uint8x8_t = transmute([0u8 ,0 ,0 ,0 , 0 ,42,42,42 ]);
+	    let expect_7 : uint8x8_t = transmute([0u8,42,42,42,  42,42,42,42]);
+	    let expect_8 : uint8x8_t = transmute([42u8,42,42,42, 42,42,42,42]);
+
+	    let got = VmullEngine8x8::mask_end_elements(input.into(),1);
+	    assert_eq!(format!("{:x?}", expect_1),
+		       format!("{:x?}", got.vec));
+
+	    let got = VmullEngine8x8::mask_end_elements(input.into(),2);
+	    assert_eq!(format!("{:x?}", expect_2),
+		       format!("{:x?}", got.vec));
+
+	    let got = VmullEngine8x8::mask_end_elements(input.into(),3);
+	    assert_eq!(format!("{:x?}", expect_3),
+		       format!("{:x?}", got.vec));
+
+	    let got = VmullEngine8x8::mask_end_elements(input.into(),7);
+	    assert_eq!(format!("{:x?}", expect_7),
+		       format!("{:x?}", got.vec));
+
+	    let got = VmullEngine8x8::mask_end_elements(input.into(),8);
+	    assert_eq!(format!("{:x?}", expect_8),
+		       format!("{:x?}", got.vec));
+	}
+    }
+
+    // test reading/wrap-around read.  I won't do too much here. Just
+    // enough to satisfy myself that the routines work as expected. I
+    // will probably tweak things later to account for existing
+    // read-ahead. And also to account for the boundary condition. I
+    // think that I should stick to a two-register version, so that
+    // may mean not reading from the start of the stream in all cases
+    // (since readahead + trailing + new stream can exceed 2 vectors)
+
+    #[test]
+    fn test_non_wrapping_read() {
+	unsafe {
+	    // actual vector data is 42s. The rest is just padding to
+	    // avoid unsafe memory reads
+	    let vector = vec![42u8,42,42,42, 42,42,42,42,
+			      42u8,42,42,42, 42,42,42,42,
+			      42u8,42,42,42, 0,0,0,0,
+			      0,0,0,0      , 0,0,0,0 ];
+	    let mut pointer = vector.as_ptr();
+	    let beyond  = pointer.offset(20);
+
+	    // first two reads should return Some(data), so just
+	    // unwrap() to test.
+	    let _ = VmullEngine8x8::non_wrapping_read(
+		pointer, beyond).unwrap();
+	    let _ = VmullEngine8x8::non_wrapping_read(
+		pointer.offset(8), beyond).unwrap();
+	    
+	    match VmullEngine8x8::non_wrapping_read(pointer.offset(16), beyond) {
+		None => { },
+		_ => { panic!("Should have got back None"); }
+	    }
+	}
+    }
+
+    #[test]
+    fn test_wrapping_read() {
+	unsafe {
+	    // actual vector data is non-zeros. The rest is just
+	    // padding to avoid unsafe memory reads
+	    let vector = vec![1u8,  2, 3, 4,  5, 6, 7, 8,
+			      42u8,42,42,42, 42,42,42,42,
+			      41u8,40,39,38, 0,0,0,0,
+			      0,0,0,0      , 0,0,0,0 ];
+	    let mut pointer = vector.as_ptr();
+	    let beyond  = pointer.offset(20);
+
+	    // first two reads should return Some(data), so just
+	    // unwrap() to test.
+	    let _ = VmullEngine8x8::non_wrapping_read(
+		pointer, beyond).unwrap();
+	    let _ = VmullEngine8x8::non_wrapping_read(
+		pointer.offset(8), beyond).unwrap();
+	    
+	    let try_non_wrapping = VmullEngine8x8
+		::non_wrapping_read(pointer.offset(16), beyond);
+	    match VmullEngine8x8::non_wrapping_read(pointer.offset(16), beyond) {
+		None => { },
+		// same as last test
+		_ => { panic!("Should have got back None"); }
+	    }
+
+	    // now we should try wrapping
+	    let (first, next)  = VmullEngine8x8
+		::wrapping_read(pointer.offset(16), beyond, pointer);
+
+	    // wrapped-read
+	    let expect_first : uint8x8_t = transmute([41u8,40,39,38, 1,2,3,4 ]);
+	    // remainder of restarted read stored in high bytes
+	    let expect_next  : uint8x8_t = transmute([0u8,0,0,0,     5,6,7,8 ]);
+
+	    assert_eq!(format!("{:x?}", expect_first),
+		       format!("{:x?}", first.vec));
+	    
+	    assert_eq!(format!("{:x?}", expect_next),
+		       format!("{:x?}", next.unwrap().vec));
+	    
+	}
+    }
+    
 }
