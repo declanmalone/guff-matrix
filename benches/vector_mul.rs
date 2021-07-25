@@ -2,6 +2,8 @@
 
 use guff::{GaloisField, new_gf8, F8 };
 use guff_matrix::*;
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use guff_matrix::x86::*;
 
 // despite docs, should have no main() here.

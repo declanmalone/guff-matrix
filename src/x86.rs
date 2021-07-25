@@ -109,7 +109,7 @@ pub unsafe fn vmul_p8x16(mut a : __m128i, b : __m128i, poly : u8) -> __m128i {
         a    = _mm_add_epi8(a,a);
         temp = _mm_xor_si128(a , poly);
         a    = _mm_blendv_epi8(a, temp, cond);
-        
+
         // return a;
 
         // if b & mask != 0 { result ^= a }
@@ -129,7 +129,8 @@ pub unsafe fn vmul_p8x16(mut a : __m128i, b : __m128i, poly : u8) -> __m128i {
 ///
 /// Buffers `av`, `bv` and `dest` must be a multiple of 16 in length
 // #[inline(always)]
-pub unsafe fn vmul_p8_buffer(dest : &mut [u8], av : &[u8], bv : &[u8], poly : u8) {
+pub unsafe fn vmul_p8_buffer(dest : &mut [u8], av : &[u8], bv : &[u8], poly : u8)
+{
 
     debug_assert_eq!(av.len(), bv.len());
     debug_assert_eq!(bv.len(), dest.len());
@@ -180,7 +181,6 @@ pub unsafe fn vmul_p8_buffer(dest : &mut [u8], av : &[u8], bv : &[u8], poly : u8
 /// A function to help examine whether/how inlining is done.
 /// Returns the cube of each element
 pub unsafe fn vector_cube_p8x16(a : __m128i, poly : u8) -> __m128i {
-
     // make two calls to vmul_p8x16
     let squared = vmul_p8x16(a, a, poly);
     vmul_p8x16(squared, a, poly)
@@ -323,7 +323,7 @@ impl X86u8x16Long0x11b {
 	debug_assert!(bytes != 16);
 	Self::right_shift(r0, 16 - bytes)
     }
-	
+
 }
 
 #[allow(dead_code)]
@@ -334,7 +334,7 @@ unsafe fn test_alignr() {
 	        8, 9, 10, 11, 12, 13, 14, 15 ];
     let bv = [ 16u8, 17, 18, 19, 20, 21, 22, 23,
 	       24, 25, 26, 27, 28, 29, 30, 31];
-    
+
     let lo = _mm_lddqu_si128(av.as_ptr() as *const std::arch::x86_64::__m128i);
     let hi = _mm_lddqu_si128(bv.as_ptr() as *const std::arch::x86_64::__m128i);
 

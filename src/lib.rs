@@ -71,7 +71,7 @@
 // is enabled.
 //
 
-use guff::{GaloisField};
+use guff::*;
 
 // Only one x86 implementation, included automatically
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -332,7 +332,7 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
 	// above may have set dp_counter to k already.
 	if dp_counter < k {	       // If not, ...
 	    let want = k - dp_counter; // always strictly positive
-	    
+
 	    // eprintln!("Calling sum_across_n with m0 {:?}, m1 {:?}, n {}, offset {}",
 	    //      m0.vec, m1.vec, want, offset_mod_simd);
 	    let (part, new_m) = S::sum_across_n(m0,m1,want,offset_mod_simd);

@@ -24,7 +24,9 @@ debug = true
 [dependencies]
 #"num" = "0.4.0"
 #"num-traits" = "0.2.14"
-guff = "0.1.7"
+#guff = "~0.1"
+"guff"        = { path="../guff",        version = "~0.1" }
+
 
 [features]
 # enable software simulation of matrix multiply algorithm
