@@ -150,14 +150,14 @@ pub trait ArmSimd {
     // Need to think about boundary condition... should it be on
     // beyond, or on the end of the matrix? Just be consistent.
     
-    unsafe fn non_wrapping_read(read_ptr :  const* Self::E,
-				beyond   :  const* Self::E
+    unsafe fn non_wrapping_read(read_ptr :  *const Self::E,
+				beyond   :  *const Self::E
     ) -> Option<Self>; // None if read_ptr + SIMD_BYTES >= beyond
 
     // And a version that wraps around matrix boundary
-    unsafe fn wrapping_read(read_ptr : const* Self::E,
-			    beyond   : const* Self::E,
-			    restart  : const* Self::E
+    unsafe fn wrapping_read(read_ptr : *const Self::E,
+			    beyond   : *const Self::E,
+			    restart  : *const Self::E
     ) -> (Self, Option<Self>); // if non-wrapping fails
 
     // 
@@ -176,11 +176,11 @@ pub struct VmullEngine8x8 {
 // low-level intrinsics
 impl VmullEngine8x8 {
 
-    unsafe fn read_simd_poly(ptr: const* u8) -> poly8x8_t {
+    unsafe fn read_simd_poly(ptr: *const u8) -> poly8x8_t {
 	vld1_p8(ptr)
     }
 
-    unsafe fn read_simd_uint(ptr: const* u8) -> uint8x8_t {
+    unsafe fn read_simd_uint(ptr: *const u8) -> uint8x8_t {
 	vld1_u8(ptr)
     }
 
