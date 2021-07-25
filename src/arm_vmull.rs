@@ -152,13 +152,15 @@ pub trait ArmSimd {
     
     unsafe fn non_wrapping_read(read_ptr :  *const Self::E,
 				beyond   :  *const Self::E
-    ) -> Option<Self>; // None if read_ptr + SIMD_BYTES >= beyond
+    ) -> Option<Self>    // None if read_ptr + SIMD_BYTES >= beyond
+	where Self : Sized;
 
     // And a version that wraps around matrix boundary
     unsafe fn wrapping_read(read_ptr : *const Self::E,
 			    beyond   : *const Self::E,
 			    restart  : *const Self::E
-    ) -> (Self, Option<Self>); // if non-wrapping fails
+    ) -> (Self, Option<Self>)
+    where Self : Sized;  // if non-wrapping fails
 
     // 
 
@@ -169,7 +171,7 @@ pub trait ArmSimd {
 // I think that the reason is that I saw that it wasn't inlining
 // properly, even with the inline directive. 
 
-#[derive(Sized,Debug,Display)]
+#[derive(Debug,Display)]
 pub struct VmullEngine8x8 {
     vec : uint8x8_t,
 }
@@ -233,7 +235,7 @@ impl From<poly8x8_t> for VmullEngine8x8 {
 impl ArmSimd for VmullEngine8x8 {
     type V = poly8x8_t;
     type E = u8;
-
+    const SIMD_BYTES = 8;
     
 
 }
