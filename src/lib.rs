@@ -648,6 +648,7 @@ mod tests {
 
     // test conformance with a variety of matrix sizes
     #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn test_ref_simd_conformance() {
 
 	let cols = 19;

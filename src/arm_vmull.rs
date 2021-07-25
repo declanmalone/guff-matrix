@@ -171,39 +171,85 @@ pub trait ArmSimd {
 // I think that the reason is that I saw that it wasn't inlining
 // properly, even with the inline directive. 
 
-#[derive(Debug,Display)]
+#[derive(Debug)]
 pub struct VmullEngine8x8 {
+    // using uint8x8_t rather than poly8x8_t since it involves less
+    // type conversion.
     vec : uint8x8_t,
 }
 
 // low-level intrinsics
 impl VmullEngine8x8 {
 
-    unsafe fn read_simd_poly(ptr: *const u8) -> poly8x8_t {
-	vld1_p8(ptr)
+    unsafe fn read_simd(ptr: *const u8) -> Self {
+	vld1_p8(ptr).into()
     }
 
-    unsafe fn read_simd_uint(ptr: *const u8) -> uint8x8_t {
-	vld1_u8(ptr)
-    }
+    // unsafe fn read_simd_uint(ptr: *const u8) -> uint8x8_t {
+    // 	vld1_u8(ptr)
+    // }
 
     unsafe fn xor_across(v : Self) -> u8 {
-	
+	let mut v : uint64x1_t = vreinterpret_u64_u8(v.vec);
+	// it seems that n is bits? No. Bytes.
+	v = veor_u64(v, vshl_n_u64::<4>(v));
+	v = veor_u64(v, vshl_n_u64::<2>(v));
+	v = veor_u64(v, vshl_n_u64::<1>(v));
+	vget_lane_u8::<0>(vreinterpret_u8_u64(v))
     }
+
+    unsafe fn rotate_right(v : Self, amount : usize) -> Self {
+	let mut mask = transmute( [0u8,1,2,3,4,5,6,7] ); // null rotate mask
+	let add_amount = vmov_n_u8(amount as u8);
+	let range_mask = vmov_n_u8(0x07);
+	mask = vadd_u8(mask, add_amount);
+	mask = vand_u8(mask, range_mask);
+	vtbl1_u8(v.vec, mask).into()
+    }
+
+    unsafe fn rotate_left(v : Self, amount : usize) -> Self {
+	Self::rotate_right(v, 8 - amount)
+    }
+
+    // shift can take +ve numbers (shift right) or -ve (shift left)
+    unsafe fn shift(v : Self, amount : isize) -> Self {
+	let mut mask = transmute( [0u8,1,2,3,4,5,6,7] ); // null shift mask
+	let add_amount = vmov_n_s8(amount as i8);
+	// let range_mask = vmov_n_u8(0x07);
+	mask = vadd_s8(mask, add_amount);
+	// mask = vand_u8(mask, range_mask);
+	vreinterpret_u8_s8(vtbl1_s8(vreinterpret_s8_u8(v.vec), mask))
+	    .into()
+    }
+
+    unsafe fn shift_left(v : Self, amount : usize) -> Self {
+	Self::shift(v, -(amount as isize))
+    }
+
+    unsafe fn shift_right(v : Self, amount : usize) -> Self {
+	Self::shift(v, amount as isize)
+    }
+
+    // lo is current time, hi is in the future
+    unsafe fn extract_from_offset(hi : Self, lo : Self, missing : usize)
+				  -> Self {
+	hi
+    }
+
 }
 
 // Type conversion is very useful
 impl From<uint8x8_t> for VmullEngine8x8 {
-    fn from(other : uint8x8_t) {
+    fn from(other : uint8x8_t) -> Self {
 	unsafe {
 	    Self { vec : other }
 	}
     }
 }
 impl From<poly8x8_t> for VmullEngine8x8 {
-    fn from(other : poly8x8_t) {
+    fn from(other : poly8x8_t) -> Self {
 	unsafe {
-	    Self { vec : vreinterpretq_u8_p8(other) }
+	    Self { vec : vreinterpret_u8_p8(other) }
 	}
     }
 }
@@ -233,10 +279,70 @@ impl From<poly8x8_t> for VmullEngine8x8 {
 
 
 impl ArmSimd for VmullEngine8x8 {
-    type V = poly8x8_t;
+    type V = uint8x8_t;
     type E = u8;
-    const SIMD_BYTES = 8;
-    
+    const SIMD_BYTES : usize = 8;
+
+    // caller is responsible for tracking read_ptr
+
+    unsafe fn non_wrapping_read(read_ptr :  *const Self::E,
+				beyond   :  *const Self::E
+    ) -> Option<Self> {
+	if read_ptr.offset(Self::SIMD_BYTES as isize) > beyond {
+	    None
+	} else {
+	    Some(Self::read_simd(read_ptr).into())
+	}
+    }
+
+    unsafe fn wrapping_read(read_ptr : *const Self::E,
+			    beyond   : *const Self::E,
+			    restart  : *const Self::E
+    ) -> (Self, Option<Self>) {
+
+	let missing : isize
+	    = (read_ptr.offset(Self::SIMD_BYTES as isize)).offset_from(beyond);
+	debug_assert!(missing > 0);
+
+	// get 8 - missing from end
+	let mut r0 = Self::read_simd(read_ptr);
+
+	if missing == 0 {
+	    return (r0.into(), None);
+	}
+
+	// get missing from start
+	let mut r1 = Self::read_simd(restart);
+
+	// Two steps to combine...
+	// * rotate r0 left by missing (move bytes to top)
+	// * extract 8 bytes from {r1:r0} at offset (missing -8)
+	r0 = Self::rotate_left(r0.into(), missing as usize);
+	r0 = Self::extract_from_offset(r1,r0,missing as usize - 8);
+
+	// To get updated r1 (with missing bytes removed), either:
+	// * right shift by missing
+	// * mask out lower missing bytes
+
+	// The first places the result in the low bytes of r1, while
+	// the second leaves them in the high bytes.
+
+	// Since later on, when we combine readahead (which is what r1
+	// is) with the next simd vector, we'll need to shift/rotate
+	// it left again. So it would be preferable to only mask the
+	// bytes.
+
+	// OTOH, it's easier to implement shifts and rotates using tbl
+	// than it is to work with masks (there's apparently no way to
+	// create a mask vector from a u8/u16, so we'd need to load up
+	// a mask of the appropriate size from memory and then
+	// (sometimes) rotate it).
+	//
+	// I'll pause here and implement basic shifts, rotates and
+	// masks, then test them.
+
+	(r0, None)
+    }
 
 }
 
@@ -371,4 +477,70 @@ mod tests {
 	    assert_eq!(got, expect);
 	}
     }
+
+    // Test rotates
+    #[test]
+    fn test_rotate_right_1() {
+	unsafe {
+	    let data   : uint8x8_t = transmute([1u8,10,20,30,40,50,60,70]);
+	    let expect : uint8x8_t = transmute([10u8,20,30,40,50,60,70,1]);
+
+	    let got = VmullEngine8x8::rotate_right(data.into(), 1);
+	    assert_eq!(format!("{:x?}", expect),
+		       format!("{:x?}", got.vec));
+	}
+    }
+
+    #[test]
+    fn test_rotate_left_1() {
+	unsafe {
+	    let data   : uint8x8_t = transmute([1u8,10,20,30,40,50,60,70]);
+	    let expect : uint8x8_t = transmute([70u8,1,10,20,30,40,50,60]);
+
+	    let got = VmullEngine8x8::rotate_left(data.into(), 1);
+	    assert_eq!(format!("{:x?}", expect),
+		       format!("{:x?}", got.vec));
+	}
+    }
+
+
+    // Test shifts
+    #[test]
+    fn test_shift_right_1() {
+	unsafe {
+	    let data   : uint8x8_t = transmute([1u8,10,20,30,40,50,60,70]);
+	    let expect : uint8x8_t = transmute([10u8,20,30,40,50,60,70,0]);
+
+	    let got = VmullEngine8x8::shift_right(data.into(), 1);
+	    assert_eq!(format!("{:x?}", expect),
+		       format!("{:x?}", got.vec));
+	}
+    }
+
+    #[test]
+    fn test_shift_left_1() {
+	unsafe {
+	    let data   : uint8x8_t = transmute([1u8, 10,20,30,40,50,60,70]);
+	    let expect : uint8x8_t = transmute([0u8, 1,10,20,30,40,50,60]);
+
+	    let got = VmullEngine8x8::shift_left(data.into(), 1);
+	    assert_eq!(format!("{:x?}", expect),
+		       format!("{:x?}", got.vec));
+	}
+    }
+
+    // XOR across
+    #[test]
+    fn test_xor_across() {
+	unsafe {
+	    let data   : uint8x8_t = transmute([1u8, 2,4,8,16,32,64,128]);
+	    let got = VmullEngine8x8::xor_across(data.into());
+
+	    assert_eq!(255, got);
+	}
+    }
+
+    
+
+
 }
