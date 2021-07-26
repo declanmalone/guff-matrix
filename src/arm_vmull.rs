@@ -242,6 +242,35 @@ impl VmullEngine8x8 {
 	vtbl2_u8(tbl2, mask).into()	
     }
 
+    // versions of the above that also returns remaining bytes as new
+    // readahead
+    //
+    // args:
+    //
+    // partial (ie, old read-ahead [+read from matrix end]):
+    //
+    // +--------+------------+
+    // |        |   partial  | (in high bytes)
+    // +--------+------------+
+    // 
+    // new bytes: either full simd, or partial (read from end of matrix)
+    //
+    // These come from memory reads, so are aligned to low bytes
+    //
+    // +-----------------+---+    +---------------------+
+    // | new_from_end    |   |    | new_full_simd       |
+    // +-----------------+---+	  +---------------------+
+    //
+    // Sample output
+    //
+    //     r0                       r1 (next readahead)
+    // +--------+------------+    +------------+--------+
+    // | partial| new     .. |    |            | .. new |
+    // +--------+------------+    +------------+--------+
+    //
+    
+	
+    
     unsafe fn splat(elem : u8) -> Self {
 	vmov_n_u8(elem).into()
     }
@@ -305,6 +334,13 @@ impl From<poly8x8_t> for VmullEngine8x8 {
 // }
 
 
+// A structure used to hold read-ahead
+struct PartialSimd<ArmSimd> {
+    vec  : ArmSimd,
+    size : usize,
+}
+
+
 impl ArmSimd for VmullEngine8x8 {
     type V = uint8x8_t;
     type E = u8;
@@ -317,7 +353,7 @@ impl ArmSimd for VmullEngine8x8 {
     // "required" field, which will be 8 - the current the read-ahead
     // buffer size. In any event, I'll need to think a bit about the
     // cleanest way to handle it...
-    
+
     unsafe fn non_wrapping_read(read_ptr :  *const Self::E,
 				beyond   :  *const Self::E
     ) -> Option<Self> {
@@ -350,9 +386,9 @@ impl ArmSimd for VmullEngine8x8 {
 
 	// Two steps to combine...
 	// * shift r0 left by missing (move bytes to top)
-	// * extract 8 bytes from {r1:r0} at offset (missing -8)
+	// * extract 8 bytes from {r1:r0} at offset (8 -missing)
 	r0 = Self::shift_left(r0.into(), missing as usize);
-	r0 = Self::extract_from_offset(&r0, &r1, missing as usize - 8);
+	r0 = Self::extract_from_offset(&r0, &r1, 8-missing as usize);
 
 	// To get updated r1 (with missing bytes removed), either:
 	// * right shift by missing
@@ -423,7 +459,6 @@ impl ArmSimd for VmullEngine8x8 {
 // void simd_mull_reduce_poly8x8(poly8x8_t *result,
 //			      poly8x8_t *a, poly8x8_t *b) {
 
-// TODO: make this (or a wrapping function) return a poly8x8_t
 pub fn simd_mull_reduce_poly8x8(a : &poly8x8_t, b: &poly8x8_t)
 				-> poly8x8_t {
 
@@ -518,6 +553,82 @@ pub fn simd_mull_reduce_poly8x8(a : &poly8x8_t, b: &poly8x8_t)
     }
 }
 
+// Some stuff that's better handled using functions rather than struct
+// or trait methods...
+
+
+
+// Truth tables for handling existing readahead + remaining + next
+//
+// remaining is vector/matrix length mod simd size. This is invariant
+// because we're always reading some number (possibly zero) full SIMD
+// chunks, followed by the same ending (remaining/partial) bytes.
+//
+// readahead can change in size, though, every time we wrap around the
+// matrix.
+//
+// (state stored within matrix multiply routine)
+
+
+// In-register storage of matrix
+//
+// If the entire matrix will fit in n simd registers, we can use n+1
+// registers to achieve easy lookup/rotation.
+//
+// Say that the stream is 3 bytes, and we store it in a single
+// register:
+//
+// abcabcab
+//
+// We can't rotate that vector to get a new position in the stream
+// because 3 is relatively prime to 8 (we'd get invalid data like
+// 'aba' at some point).
+//
+// We can, however, use two registers:
+//
+// abcabcab cabcabca (high)
+//
+// Then we can have a mod-3 offset pointer returning all possible
+// reads:
+//
+// abcabcab cabcabca (high)
+//   cab... ca       offset 2
+//  bca...  c        offset 1
+// abc...            offset 0
+//
+// This can be fairly easily extended to multi-register schemes.
+//
+// Also, if the stream length is a multiple of the simd length, we can
+// avoid storing an extra register, eg, with a mod-4 counter:
+//
+// r0       r1
+// abcdabcd abcdacd
+//    dab.. abc      offset 3
+//   cab... ab       offset 2
+//  bca...  a        offset 1
+// abc...            offset 0
+//
+//
+// Since r0 = r1, we just use extract_from_offset(&r0,&r0) instead of
+// explicitly storing r1.
+//
+// (state stored within matrix multiply routine)
+
+// As part of the job of migrating state to the matrix multiply
+// routine, besides the above (and stuff like them that depend on
+// modular maths), some of the mid-level and low-level trait/struct
+// methods will need to be modified/supplemented to allow, eg passing
+// in masks. This can avoid recalculating the same mask repeatedly, eg
+// when reading in a stream of full, non-wrapping vectors, the same
+// mask can be used to select the correct bytes from r0 and r1. It's
+// only when we do wrap-around that the mask needs to be recalculated.
+//
+// I'll probably hold off on doing that level of optimisation for a
+// while, though. It's more important to get the basics of wrap-around
+// reading working, and from there doing enough to get matrix
+// multiplication working for Arm. Also, after that, refactoring to
+// make Arm/x86 implementations compatible with each other is a more
+// important target to aim for.
 
 
 
@@ -776,18 +887,24 @@ mod tests {
 	    let (first, next)  = VmullEngine8x8
 		::wrapping_read(pointer.offset(16), beyond, pointer);
 
-	    // wrapped-read
+	    // wrapped read
 	    let expect_first : uint8x8_t = transmute([41u8,40,39,38, 1,2,3,4 ]);
 	    // remainder of restarted read stored in high bytes
 	    let expect_next  : uint8x8_t = transmute([0u8,0,0,0,     5,6,7,8 ]);
 
 	    assert_eq!(format!("{:x?}", expect_first),
 		       format!("{:x?}", first.vec));
-	    
+
 	    assert_eq!(format!("{:x?}", expect_next),
 		       format!("{:x?}", next.unwrap().vec));
-	    
 	}
+    }
+
+    #[test]
+    fn better_wrap_test() {
+
+
+
     }
     
 }
