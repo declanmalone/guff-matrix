@@ -163,6 +163,16 @@ pub trait ArmSimd {
     where Self : Sized;  // if non-wrapping fails
 
     // 
+    unsafe fn read_next(mod_index : &mut usize,
+			array_index : &mut usize,
+			array     : &[Self::E],
+			size      : usize,
+			ra_size : &mut usize,
+			ra : &mut Self)
+	-> Self
+	where Self : Sized;
+			
+    
 
 }
 
@@ -171,7 +181,7 @@ pub trait ArmSimd {
 // I think that the reason is that I saw that it wasn't inlining
 // properly, even with the inline directive. 
 
-#[derive(Debug)]
+#[derive(Debug,Copy,Clone)]
 pub struct VmullEngine8x8 {
     // using uint8x8_t rather than poly8x8_t since it involves less
     // type conversion.
@@ -181,6 +191,10 @@ pub struct VmullEngine8x8 {
 // low-level intrinsics
 impl VmullEngine8x8 {
 
+    unsafe fn zero_vector() -> Self {
+	vmov_n_u8(0).into()
+    }
+    
     unsafe fn read_simd(ptr: *const u8) -> Self {
 	vld1_p8(ptr).into()
     }
@@ -450,6 +464,121 @@ impl ArmSimd for VmullEngine8x8 {
 	(r0, Some(Self::mask_end_elements(r1, 8 - missing as usize)))
     }
 
+    // caller passes in current state variables and we pass back
+    // updated values plus the newly-read simd value
+    unsafe fn read_next(mod_index : &mut usize,
+			array_index : &mut usize,
+			array     : &[Self::E],
+			size      : usize,
+			ra_size   : &mut usize,
+			ra        : &mut Self)
+			-> Self {
+
+	let available_at_end = size - *mod_index;
+	let available = *ra_size + available_at_end;
+
+	// at end, when updating mod_index, we wrap it around, so this
+	// should always be strictly positive
+	debug_assert!(available_at_end > 0);
+
+	eprintln!("\nStarting mod_index: {}", *mod_index);
+	eprintln!("Available: ra {} + at end {} = {}",
+		  *ra_size, available_at_end, available);
+
+	// r0 could have full or partial simd in it
+	//	let read_ptr = array.as_ptr().offset((*mod_index & !7) as isize);
+	let read_ptr = array.as_ptr().offset((*array_index) as isize);
+	let mut r0 : Self = Self::read_simd(read_ptr as *const u8).into();
+	*array_index += 8;
+
+	eprintln!("Read r0: {:x?}", r0.vec);
+	
+	let result;
+
+	// The tests below can be reordered to bring some common code
+	// out of the arms, but I think that this layout makes it
+	// easier to understand what's going on.
+	
+	// each arm must update ra, ra_size, result. wrap-around also
+	// sets mod_index to zero if it wrapped.
+	if available < 8 {
+	    // read some from end + some from start
+
+	    if *ra_size == 0 {
+		// move end bytes to top of r0
+		r0 = Self::shift_left(r0, 8 - available_at_end);
+		eprintln!("No ra, so shifted r0 left by {} : {:x?}",
+			  8 - available_at_end, r0.vec);
+	    } else {
+		// move ra + end bytes to top of r0
+		r0 = Self::extract_from_offset(&*ra, &r0, 8 - *ra_size);
+		eprintln!("Had ra, extracted from [ra:r0] (ra: {:x?} offset {}",
+			  *ra, 8 - *ra_size);
+		eprintln!("r0 now {:x?}", r0.vec);
+	    }
+
+	    *mod_index = *mod_index + 8 - size;
+	    *array_index = 0;
+	    let read_ptr = array.as_ptr().offset(*array_index as isize);
+	    let r1 = Self::read_simd(read_ptr as *const u8);
+	    *array_index += 8;
+
+	    eprintln!("reading r1 to complete {:x?}", r1.vec);
+
+	    result = Self::extract_from_offset(&r0, &r1, 8 - available);
+	    
+	    // we can now mask r1 to remove the remaining unused
+	    // bytes, but so long as we're using extract, they should
+	    // never matter.
+	    *ra = r1;
+	    *ra_size = available;
+	    eprintln!("saved {} bytes of readahead: {:x?}",*ra_size, (*ra).vec);
+
+	} else if available == 8 {
+	    // read from end, possibly including readahead
+	    if *ra_size == 0 {
+		// all bytes are in r0 already
+	    } else {
+		// combine ra, r0 
+		r0 = Self::extract_from_offset(&*ra, &r0, 8 - *ra_size);
+	    }
+	    result = r0;
+	    // ra contains junk; should be OK since ra_size = 0
+	    *ra_size = 0;
+	    // update mod_index
+	    *mod_index += 8;
+	    if *mod_index >= size { *mod_index -= size }
+
+	} else {
+
+	    // read from middle
+	    // This can clobber new read-ahead, so save it first
+	    let temp = r0;		 // only high bytes
+	    if *ra_size == 0 {
+		// all bytes are in r0 already
+		eprintln!("readahead is empty");
+	    } else {
+		// combine ra, r0
+		r0 = Self::extract_from_offset(&*ra, &r0, 8 - *ra_size);
+		eprintln!("combining ra {:x?} with r0, starting at offset {}",
+			  (*ra).vec, 8 - *ra_size);
+	    }
+	    result = r0;
+	    *ra = temp;
+	    *ra_size = *ra_size; // unchanged (possibly zero)
+	    eprintln!("saved {} bytes of readahead: {:x?}",*ra_size, (*ra).vec);
+
+	    // update mod_index
+	    *mod_index += 8;
+	    if *mod_index >= size { *mod_index -= size }
+	}
+
+	if *array_index >= size { *array_index -= size }
+	eprintln!("result: {:x?}", result.vec);
+	result
+    }
+			
+		 
 }
 
 
@@ -900,11 +1029,51 @@ mod tests {
 	}
     }
 
+    // new read_next to replace non_wrapping_read and wrapping_read
     #[test]
-    fn better_wrap_test() {
+    fn test_read_next() {
 
+	// state variables that read_next will update
+	let mut ra;
+	unsafe { ra = VmullEngine8x8::zero_vector() }
+	let mut ra_size = 0;
+	let mut mod_index = 0;
+	let mut array_index = 0;
+	let size = 21;
+	let array = [ 0u8,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,
+		      0,0,0,0,0,0,0,0]; // padding
 
+	// additionally, we'll track non-modular index so that we
+	// can check that index % size == mod_index
+	let mut index = 0;
 
+	// use iterators to make a reference stream
+	let mut check = (0u8..21).cycle();
+	let mut check_vec = [0u8; 8];
+	let addr = check_vec.as_ptr();
+	for i in 0..42 {
+	    unsafe {
+		// isn't there a quicker way to take 8 elements? Can't use
+		// check.chunks()
+		for i in 0..8 {
+		    check_vec[i] = check.next().unwrap();
+		}
+		index += 8;
+		let got = VmullEngine8x8
+		    ::read_next(&mut mod_index,
+				&mut array_index,
+				&array[..],
+				size,
+				&mut ra_size,
+				&mut ra);
+		assert_eq!(mod_index, index % size);
+		let v = VmullEngine8x8::read_simd(addr);
+
+		assert_eq!(format!("{:x?}", got.vec),
+			   format!("{:x?}", v.vec));
+
+	    }
+	}
     }
     
 }
