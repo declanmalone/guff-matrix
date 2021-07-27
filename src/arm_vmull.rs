@@ -482,8 +482,10 @@ impl ArmSimd for VmullEngine8x8 {
 	// mod_index, since that only changes once per call and so is
 	// easier to reason about:
 
-	// let available_at_end = size - *array_index;
-	let available_at_end = size - *mod_index;
+	let available_at_end = size - *array_index;
+	// apparently not:
+	// let available_at_end = size - *mod_index;
+
 	let available = *ra_size + available_at_end;
 
 	// at end, when updating mod_index, we wrap it around, so this
@@ -512,9 +514,16 @@ impl ArmSimd for VmullEngine8x8 {
 	// be the same thing.
 	let array_bool = *array_index >= size;
 	let avail_bool = available_at_end <= 8;
-	debug_assert_eq!(array_bool, avail_bool);
+
+	// apparently not...
+	// debug_assert_eq!(array_bool, avail_bool);
+
+	
+	
 	if *array_index >= size {
 
+	    eprintln!("*array_index >= size");
+	    
 	    // This means that r0 is the last read from the array.
 
 	    // Scenarios for reading:
@@ -533,6 +542,8 @@ impl ArmSimd for VmullEngine8x8 {
 	    // different for each.
 
 	    if available < 8 {
+
+		eprintln!("*array_index >= size && available < 8");
 
 		let read_ptr = array.as_ptr().offset(0);
 		r1 = Self::read_simd(read_ptr as *const u8);
@@ -588,6 +599,8 @@ impl ArmSimd for VmullEngine8x8 {
 
 	    } else {  // array_index >= size && available >= 8
 
+		eprintln!("*array_index >= size && available >= 8");
+
 		// Scenario b for end of stream (no read)
 
 		// new_ra_size is 8 less because we take 8 without
@@ -596,8 +609,12 @@ impl ArmSimd for VmullEngine8x8 {
 
 		// if r0 still has bytes after this, we have to shift
 		// them to the top as new ra
+
+		// last bug (until the next one):
+		
 		if new_ra_size > 0 {
-		    new_ra = Self::shift_left(r0,8 - new_ra_size);
+		    // new_ra = Self::shift_left(r0,8 - *ra_size);
+		    new_ra = Self::shift_left(r0,8 - available_at_end);
 		} else {
 		    // value is junk, so we don't need to write
 		    new_ra = r0; // keep compiler happy
@@ -615,6 +632,8 @@ impl ArmSimd for VmullEngine8x8 {
 	    }
 	    
 	} else {  // array_index < size
+
+	    eprintln!("*array_index < size");
 
 	    // finish up with the easiest case:
 	    if *ra_size > 0 {
@@ -641,7 +660,8 @@ impl ArmSimd for VmullEngine8x8 {
 	eprintln!("result: {:x?}", result.vec);
 	
 	if *array_index >= size {
-	    panic!("Fixing up array index {} to zero", *array_index);
+	    // not an error
+	    eprintln!("Fixing up array index {} to zero", *array_index);
 	    *array_index = 0;
 	}
 
