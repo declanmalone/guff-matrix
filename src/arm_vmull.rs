@@ -474,6 +474,15 @@ impl ArmSimd for VmullEngine8x8 {
 			ra        : &mut Self)
 			-> Self {
 
+	let mut new_ra : Self; // = r0; // silence compiler
+	let mut new_mod_index = *mod_index;
+	let mut new_ra_size   = *ra_size;
+
+	// Both should be OK, but it's safer to only look at
+	// mod_index, since that only changes once per call and so is
+	// easier to reason about:
+
+	// let available_at_end = size - *array_index;
 	let available_at_end = size - *mod_index;
 	let available = *ra_size + available_at_end;
 
@@ -481,19 +490,271 @@ impl ArmSimd for VmullEngine8x8 {
 	// should always be strictly positive
 	debug_assert!(available_at_end > 0);
 
-	eprintln!("\nStarting mod_index: {}", *mod_index);
+	eprintln!("Starting mod_index: {}", *mod_index);
+	eprintln!("Starting array_index: {}", *array_index);
 	eprintln!("Available: ra {} + at end {} = {}",
 		  *ra_size, available_at_end, available);
 
 	// r0 could have full or partial simd in it
-	//	let read_ptr = array.as_ptr().offset((*mod_index & !7) as isize);
 	let read_ptr = array.as_ptr().offset((*array_index) as isize);
 	let mut r0 : Self = Self::read_simd(read_ptr as *const u8).into();
 	*array_index += 8;
 
+
 	eprintln!("Read r0: {:x?}", r0.vec);
-	
+
 	let result;
+	let mut have_r1 = false;
+	let mut r1 = r0;		// silence compiler
+
+	// Check against array_index here because we've incremented
+	// it. Could also check if available_at_end <= 8, which should
+	// be the same thing.
+	let array_bool = *array_index >= size;
+	let avail_bool = available_at_end <= 8;
+	debug_assert_eq!(array_bool, avail_bool);
+	if *array_index >= size {
+
+	    // This means that r0 is the last read from the array.
+
+	    // Scenarios for reading:
+	    //
+	    // a) There's not enough available between ra + r0, so we
+	    //    have to read from the start of the stream again
+	    //
+	    // b) We have enough between ra + r0 (so no read)
+	    //
+	    // Scenario a will definitely produce readahead (since
+	    // we're reading 8 new values from the start), while
+	    // scenario b may have readahead depeding on the
+	    // comparison of available <=> 8
+	    //
+	    // Obviously new readahead size calculations will be
+	    // different for each.
+
+	    if available < 8 {
+
+		let read_ptr = array.as_ptr().offset(0);
+		r1 = Self::read_simd(read_ptr as *const u8);
+		*array_index = 8;
+
+		// We had `available` from ra and r0, and we read
+		// 8, then returned 8, so we still have `available`
+	    
+		eprintln!("Changing ra_size to available");
+		new_ra_size = available;
+
+		// how best to approach register shifting depends on
+		// whether we have ra or not.
+
+		if *ra_size > 0 {
+
+		    // Combine ra and r0
+
+		    // ra is already in top, so extract_from_offset
+		    // works fine with r0
+
+		    r0 = Self::extract_from_offset(&ra, &r0, 8 - *ra_size);
+
+		    // now we have available bytes in r0, so to use
+		    // extract_from_offset again with r0, r1, we have
+		    // to move those bytes to the top
+		    r0 = Self::shift_left(r0, 8 - available);
+		    result = Self::extract_from_offset(&r0, &r1, 8 - available);
+
+		    // r1 already has its bytes in the right place (at top)
+		    new_ra = r1;		    
+
+		} else {
+
+		    // no readahead, so just combine bytes of r0, r1
+		    r0 = Self::shift_left(r0, 8 - available);
+		    result = Self::extract_from_offset(&r0, &r1, 8 - available);
+		    new_ra = r1;		    
+		}		    
+		
+		// eprintln!("About to shift r1 {:x?} left by offset {} and or into r0",
+		// 	  r1.vec, available_at_end );
+
+		// // it can't hurt to or r1 into r0
+		// r0 = vorr_u8(r0.vec, Self::shift_left(r1,available_at_end).vec).into();
+		// eprintln!("r0 now {:x?}", r0.vec);
+
+		// // if new_ra_size >= 8 { new_ra_size -= 8 }
+
+		// result = r0;
+		// new_ra = r1;
+		
+
+	    } else {  // array_index >= size && available >= 8
+
+		// Scenario b for end of stream (no read)
+
+		// new_ra_size is 8 less because we take 8 without
+		// replenishing with another read
+		new_ra_size = available - 8;
+
+		// if r0 still has bytes after this, we have to shift
+		// them to the top as new ra
+		if new_ra_size > 0 {
+		    new_ra = Self::shift_left(r0,8 - new_ra_size);
+		} else {
+		    // value is junk, so we don't need to write
+		    new_ra = r0; // keep compiler happy
+		}
+
+		// here, too, we check whether we have readahead and
+		// do different register ops depending
+		if *ra_size > 0 {
+		    // combine ra + r0.
+		    result = Self::extract_from_offset(&ra, &r0, 8 - *ra_size);
+		} else {
+		    // else all 8 bytes come from r0
+		    result = r0;
+		}
+	    }
+	    
+	} else {  // array_index < size
+
+	    // finish up with the easiest case:
+	    if *ra_size > 0 {
+		// combine ra + r0.
+		result = Self::extract_from_offset(&ra, &r0, 8 - *ra_size);
+	    } else {
+		// else all 8 bytes come from r0
+		result = r0;
+	    }
+	    new_ra = r0;
+	}
+
+	// save updated variables
+
+	*ra_size = new_ra_size;
+	*ra = new_ra;
+
+	new_mod_index += 8;
+	if new_mod_index >= size { new_mod_index -= size }
+	*mod_index = new_mod_index;
+
+	eprintln!("final ra_size: {}", *ra_size);
+	eprintln!("final ra: {:x?}", (*ra).vec);
+	eprintln!("result: {:x?}", result.vec);
+	
+	if *array_index >= size {
+	    panic!("Fixing up array index {} to zero", *array_index);
+	    *array_index = 0;
+	}
+
+	return result;
+	
+
+	// END REWRITE!
+
+	
+	// might just change over to using shifts exclusively,
+	// although the tbl-based extract_from_offset routine is nice.
+	//
+
+	// Work out each updated register separately...
+	//
+
+
+	//	if *array_index >= size  {
+	if available < 8  {
+	    if available_at_end < 8  {
+		eprintln!("available < 8");
+		have_r1 = true;
+
+		// new_mod_index = new_mod_index - size;
+
+		let read_ptr = array.as_ptr().offset(0);
+		r1 = Self::read_simd(read_ptr as *const u8);
+		*array_index = 8;
+
+		eprintln!("About to shift r1 {:x?} left by offset {} and or into r0",
+			  r1.vec, available_at_end );
+
+		// it can't hurt to or r1 into r0
+		r0 = vorr_u8(r0.vec, Self::shift_left(r1,available_at_end).vec).into();
+		eprintln!("r0 now {:x?}", r0.vec);
+
+
+		// OK. We had `available` from ra and r0
+	    
+		eprintln!("Changing ra_size to available");
+		new_ra_size = available;
+		// if new_ra_size >= 8 { new_ra_size -= 8 }
+	    } else {
+
+
+	    }
+	}
+
+	let result;
+	// now we can compose ra and r0 to get result
+	if *ra_size == 0 {
+	    result = r0;
+	} else {
+	    //panic!("");
+	    result = Self::extract_from_offset(&*ra, &r0, 8 - *ra_size);
+	}
+
+	// Calculate new read-ahead
+	let new_ra;
+	if *ra_size == 0 {
+	    if have_r1 {
+		eprintln!("setting new_ra to r1 {:x?}", r1.vec);
+		new_ra = r1
+	    } else {
+		eprintln!("setting new_ra to r0 {:x?}", r0.vec);
+		new_ra = r0
+	    }
+	} else {
+	    if have_r1 {
+		// shift some bytes of r0 into top end
+		eprintln!("About to shift r0 left by offset {}", 8 - *ra_size);
+		r0 = Self::shift_left(r0, 8- *ra_size);
+		eprintln!("resulting r0: {:x?}", r0.vec);
+
+		eprintln!("Extracting from r0,r1 at offset {}", 8 - *ra_size);
+		new_ra = Self::extract_from_offset(&r0, &r1, 8 - *ra_size);
+		eprintln!("r0 now {:x?}", r0.vec);
+	    } else {
+		new_ra = r0;
+	    }
+	}
+
+	if available_at_end < 8 {
+	} else if available_at_end == 8 {
+	    eprintln!("Changing ra_size to zero");
+	    new_ra_size = 0;
+	} else {
+	    new_ra_size = *ra_size
+	}
+
+	// save updated variables
+
+	*ra_size = new_ra_size;
+	*ra = new_ra;
+
+	new_mod_index += 8;
+	if new_mod_index >= size { new_mod_index -= size }
+	*mod_index = new_mod_index;
+
+	eprintln!("final ra_size: {}", *ra_size);
+	eprintln!("final ra: {:x?}", (*ra).vec);
+	eprintln!("result: {:x?}", result.vec);
+	
+	if *array_index >= size {
+	    eprintln!("Fixing up array index {} to zero", *array_index);
+	    *array_index = 0;
+	}
+
+
+	
+	return result;
+	
+	// 
 
 	// The tests below can be reordered to bring some common code
 	// out of the arms, but I think that this layout makes it
@@ -517,11 +778,11 @@ impl ArmSimd for VmullEngine8x8 {
 		eprintln!("r0 now {:x?}", r0.vec);
 	    }
 
-	    *mod_index = *mod_index + 8 - size;
-	    *array_index = 0;
-	    let read_ptr = array.as_ptr().offset(*array_index as isize);
-	    let r1 = Self::read_simd(read_ptr as *const u8);
-	    *array_index += 8;
+	    // *mod_index = *mod_index + 8 - size;
+	    // *array_index = 0;
+	    // let read_ptr = array.as_ptr().offset(*array_index as isize);
+	    // let r1 = Self::read_simd(read_ptr as *const u8);
+	    // *array_index += 8;
 
 	    eprintln!("reading r1 to complete {:x?}", r1.vec);
 
@@ -573,7 +834,7 @@ impl ArmSimd for VmullEngine8x8 {
 	    if *mod_index >= size { *mod_index -= size }
 	}
 
-	if *array_index >= size { *array_index -= size }
+	if *array_index >= size { *array_index = 0 }
 	eprintln!("result: {:x?}", result.vec);
 	result
     }
@@ -758,6 +1019,8 @@ pub fn simd_mull_reduce_poly8x8(a : &poly8x8_t, b: &poly8x8_t)
 // multiplication working for Arm. Also, after that, refactoring to
 // make Arm/x86 implementations compatible with each other is a more
 // important target to aim for.
+
+
 
 
 
@@ -1031,6 +1294,56 @@ mod tests {
 
     // new read_next to replace non_wrapping_read and wrapping_read
     #[test]
+    fn test_read_next_simple() {
+
+	// state variables that read_next will update
+	let mut ra;
+	unsafe { ra = VmullEngine8x8::zero_vector() }
+	let mut ra_size = 0;
+	let mut mod_index = 0;
+	let mut array_index = 0;
+	let size = 24;
+	let array = [ 0u8,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,
+		      0,0,0,0,0,0,0,0]; // padding
+
+	// additionally, we'll track non-modular index so that we
+	// can check that index % size == mod_index
+	let mut index = 0;
+
+	// use iterators to make a reference stream
+	let mut check = (0u8..24).cycle();
+	let mut check_vec = [0u8; 8];
+	let addr = check_vec.as_ptr();
+	let old_mod_index = 0;
+	for i in 0..42 {
+	    unsafe {
+		// isn't there a quicker way to take 8 elements? Can't use
+		// check.chunks()
+		for i in 0..8 {
+		    check_vec[i] = check.next().unwrap();
+		}
+		index += 8;
+		let got = VmullEngine8x8
+		    ::read_next(&mut mod_index,
+				&mut array_index,
+				&array[..],
+				size,
+				&mut ra_size,
+				&mut ra);
+		assert_eq!(mod_index, index % size);
+
+		
+		
+		let v = VmullEngine8x8::read_simd(addr);
+
+		assert_eq!(format!("{:x?}", got.vec),
+			   format!("{:x?}", v.vec));
+
+	    }
+	}
+    }
+    
+    #[test]
     fn test_read_next() {
 
 	// state variables that read_next will update
@@ -1051,6 +1364,7 @@ mod tests {
 	let mut check = (0u8..21).cycle();
 	let mut check_vec = [0u8; 8];
 	let addr = check_vec.as_ptr();
+	let old_mod_index = 0;
 	for i in 0..42 {
 	    unsafe {
 		// isn't there a quicker way to take 8 elements? Can't use
@@ -1058,6 +1372,7 @@ mod tests {
 		for i in 0..8 {
 		    check_vec[i] = check.next().unwrap();
 		}
+		eprintln!("\nAbsolute index {}", index);
 		index += 8;
 		let got = VmullEngine8x8
 		    ::read_next(&mut mod_index,
@@ -1067,6 +1382,9 @@ mod tests {
 				&mut ra_size,
 				&mut ra);
 		assert_eq!(mod_index, index % size);
+
+		
+		
 		let v = VmullEngine8x8::read_simd(addr);
 
 		assert_eq!(format!("{:x?}", got.vec),
@@ -1075,5 +1393,5 @@ mod tests {
 	    }
 	}
     }
-    
+
 }
