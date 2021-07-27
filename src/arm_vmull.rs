@@ -8,7 +8,25 @@ use core::arch::aarch64::*;
 
 use std::mem::transmute;
 
+// Update 2021/07/21
+//
+// I've just finished getting read_next() working after my third or
+// fourth rewrite.
+//
+// My goal is to unify my approach to both x86 and Arm platforms. One
+// part of that will be to rework read_next() and all the supporting
+// functions so that the functionality for read_next is generic across
+// both/all platforms ("all", if you count different vector
+// multiplication algorithms as counting as a different platform).
+//
+// Before then, though, I need to round out the rest of the
+// functionality needed to implement matrix multiply. That should be
+// fairly easy given the mask routines I've already written.
 
+// Old notes (mainly still valid, although I'm not using the
+// wrapping_read/non_wrapping_read or Option<Simd> in the rewrite of
+// read_next)
+//
 // Quick notes on approaching this ...
 //
 // I'm going to shift all simd-related logic out of the matrix
@@ -324,36 +342,6 @@ impl From<poly8x8_t> for VmullEngine8x8 {
     }
 }
 
-// Can rust automatically derive Into for the above? I guess so ... it
-// should just translate other.into() as self.from().
-
-// Do I want a bunch more foreign implementations on wide forms, eg:
-//
-// (actually, not allowed unless I make my own types; not sure if type
-// aliases count, but I'm not going to bother trying that now)
-//
-// impl From<uint16x8_t> for poly16x8_t {
-//    fn from(other : uint16x8_t) {
-// 	unsafe {
-// 	    vreinterpretq_p16_u16(other)
-// 	}
-//     }
-// }
-// impl From<poly16x8_t> for uint16x8_t {
-//    fn from(other : poly16x8_t) {
-// 	unsafe {
-// 	    vreinterpretq_u16_p16(other)
-// 	}
-//     }
-// }
-
-
-// A structure used to hold read-ahead
-struct PartialSimd<ArmSimd> {
-    vec  : ArmSimd,
-    size : usize,
-}
-
 
 impl ArmSimd for VmullEngine8x8 {
     type V = uint8x8_t;
@@ -584,19 +572,6 @@ impl ArmSimd for VmullEngine8x8 {
 		    new_ra = r1;		    
 		}		    
 		
-		// eprintln!("About to shift r1 {:x?} left by offset {} and or into r0",
-		// 	  r1.vec, available_at_end );
-
-		// // it can't hurt to or r1 into r0
-		// r0 = vorr_u8(r0.vec, Self::shift_left(r1,available_at_end).vec).into();
-		// eprintln!("r0 now {:x?}", r0.vec);
-
-		// // if new_ra_size >= 8 { new_ra_size -= 8 }
-
-		// result = r0;
-		// new_ra = r1;
-		
-
 	    } else {  // array_index >= size && available >= 8
 
 		eprintln!("*array_index >= size && available >= 8");
@@ -666,197 +641,9 @@ impl ArmSimd for VmullEngine8x8 {
 	}
 
 	return result;
-	
 
 	// END REWRITE!
-
 	
-	// might just change over to using shifts exclusively,
-	// although the tbl-based extract_from_offset routine is nice.
-	//
-
-	// Work out each updated register separately...
-	//
-
-
-	//	if *array_index >= size  {
-	if available < 8  {
-	    if available_at_end < 8  {
-		eprintln!("available < 8");
-		have_r1 = true;
-
-		// new_mod_index = new_mod_index - size;
-
-		let read_ptr = array.as_ptr().offset(0);
-		r1 = Self::read_simd(read_ptr as *const u8);
-		*array_index = 8;
-
-		eprintln!("About to shift r1 {:x?} left by offset {} and or into r0",
-			  r1.vec, available_at_end );
-
-		// it can't hurt to or r1 into r0
-		r0 = vorr_u8(r0.vec, Self::shift_left(r1,available_at_end).vec).into();
-		eprintln!("r0 now {:x?}", r0.vec);
-
-
-		// OK. We had `available` from ra and r0
-	    
-		eprintln!("Changing ra_size to available");
-		new_ra_size = available;
-		// if new_ra_size >= 8 { new_ra_size -= 8 }
-	    } else {
-
-
-	    }
-	}
-
-	let result;
-	// now we can compose ra and r0 to get result
-	if *ra_size == 0 {
-	    result = r0;
-	} else {
-	    //panic!("");
-	    result = Self::extract_from_offset(&*ra, &r0, 8 - *ra_size);
-	}
-
-	// Calculate new read-ahead
-	let new_ra;
-	if *ra_size == 0 {
-	    if have_r1 {
-		eprintln!("setting new_ra to r1 {:x?}", r1.vec);
-		new_ra = r1
-	    } else {
-		eprintln!("setting new_ra to r0 {:x?}", r0.vec);
-		new_ra = r0
-	    }
-	} else {
-	    if have_r1 {
-		// shift some bytes of r0 into top end
-		eprintln!("About to shift r0 left by offset {}", 8 - *ra_size);
-		r0 = Self::shift_left(r0, 8- *ra_size);
-		eprintln!("resulting r0: {:x?}", r0.vec);
-
-		eprintln!("Extracting from r0,r1 at offset {}", 8 - *ra_size);
-		new_ra = Self::extract_from_offset(&r0, &r1, 8 - *ra_size);
-		eprintln!("r0 now {:x?}", r0.vec);
-	    } else {
-		new_ra = r0;
-	    }
-	}
-
-	if available_at_end < 8 {
-	} else if available_at_end == 8 {
-	    eprintln!("Changing ra_size to zero");
-	    new_ra_size = 0;
-	} else {
-	    new_ra_size = *ra_size
-	}
-
-	// save updated variables
-
-	*ra_size = new_ra_size;
-	*ra = new_ra;
-
-	new_mod_index += 8;
-	if new_mod_index >= size { new_mod_index -= size }
-	*mod_index = new_mod_index;
-
-	eprintln!("final ra_size: {}", *ra_size);
-	eprintln!("final ra: {:x?}", (*ra).vec);
-	eprintln!("result: {:x?}", result.vec);
-	
-	if *array_index >= size {
-	    eprintln!("Fixing up array index {} to zero", *array_index);
-	    *array_index = 0;
-	}
-
-
-	
-	return result;
-	
-	// 
-
-	// The tests below can be reordered to bring some common code
-	// out of the arms, but I think that this layout makes it
-	// easier to understand what's going on.
-	
-	// each arm must update ra, ra_size, result. wrap-around also
-	// sets mod_index to zero if it wrapped.
-	if available < 8 {
-	    // read some from end + some from start
-
-	    if *ra_size == 0 {
-		// move end bytes to top of r0
-		r0 = Self::shift_left(r0, 8 - available_at_end);
-		eprintln!("No ra, so shifted r0 left by {} : {:x?}",
-			  8 - available_at_end, r0.vec);
-	    } else {
-		// move ra + end bytes to top of r0
-		r0 = Self::extract_from_offset(&*ra, &r0, 8 - *ra_size);
-		eprintln!("Had ra, extracted from [ra:r0] (ra: {:x?} offset {}",
-			  *ra, 8 - *ra_size);
-		eprintln!("r0 now {:x?}", r0.vec);
-	    }
-
-	    // *mod_index = *mod_index + 8 - size;
-	    // *array_index = 0;
-	    // let read_ptr = array.as_ptr().offset(*array_index as isize);
-	    // let r1 = Self::read_simd(read_ptr as *const u8);
-	    // *array_index += 8;
-
-	    eprintln!("reading r1 to complete {:x?}", r1.vec);
-
-	    result = Self::extract_from_offset(&r0, &r1, 8 - available);
-	    
-	    // we can now mask r1 to remove the remaining unused
-	    // bytes, but so long as we're using extract, they should
-	    // never matter.
-	    *ra = r1;
-	    *ra_size = available;
-	    eprintln!("saved {} bytes of readahead: {:x?}",*ra_size, (*ra).vec);
-
-	} else if available == 8 {
-	    // read from end, possibly including readahead
-	    if *ra_size == 0 {
-		// all bytes are in r0 already
-	    } else {
-		// combine ra, r0 
-		r0 = Self::extract_from_offset(&*ra, &r0, 8 - *ra_size);
-	    }
-	    result = r0;
-	    // ra contains junk; should be OK since ra_size = 0
-	    *ra_size = 0;
-	    // update mod_index
-	    *mod_index += 8;
-	    if *mod_index >= size { *mod_index -= size }
-
-	} else {
-
-	    // read from middle
-	    // This can clobber new read-ahead, so save it first
-	    let temp = r0;		 // only high bytes
-	    if *ra_size == 0 {
-		// all bytes are in r0 already
-		eprintln!("readahead is empty");
-	    } else {
-		// combine ra, r0
-		r0 = Self::extract_from_offset(&*ra, &r0, 8 - *ra_size);
-		eprintln!("combining ra {:x?} with r0, starting at offset {}",
-			  (*ra).vec, 8 - *ra_size);
-	    }
-	    result = r0;
-	    *ra = temp;
-	    *ra_size = *ra_size; // unchanged (possibly zero)
-	    eprintln!("saved {} bytes of readahead: {:x?}",*ra_size, (*ra).vec);
-
-	    // update mod_index
-	    *mod_index += 8;
-	    if *mod_index >= size { *mod_index -= size }
-	}
-
-	if *array_index >= size { *array_index = 0 }
-	eprintln!("result: {:x?}", result.vec);
-	result
     }
 			
 		 
@@ -963,23 +750,6 @@ pub fn simd_mull_reduce_poly8x8(a : &poly8x8_t, b: &poly8x8_t)
     }
 }
 
-// Some stuff that's better handled using functions rather than struct
-// or trait methods...
-
-
-
-// Truth tables for handling existing readahead + remaining + next
-//
-// remaining is vector/matrix length mod simd size. This is invariant
-// because we're always reading some number (possibly zero) full SIMD
-// chunks, followed by the same ending (remaining/partial) bytes.
-//
-// readahead can change in size, though, every time we wrap around the
-// matrix.
-//
-// (state stored within matrix multiply routine)
-
-
 // In-register storage of matrix
 //
 // If the entire matrix will fit in n simd registers, we can use n+1
@@ -1023,26 +793,6 @@ pub fn simd_mull_reduce_poly8x8(a : &poly8x8_t, b: &poly8x8_t)
 // explicitly storing r1.
 //
 // (state stored within matrix multiply routine)
-
-// As part of the job of migrating state to the matrix multiply
-// routine, besides the above (and stuff like them that depend on
-// modular maths), some of the mid-level and low-level trait/struct
-// methods will need to be modified/supplemented to allow, eg passing
-// in masks. This can avoid recalculating the same mask repeatedly, eg
-// when reading in a stream of full, non-wrapping vectors, the same
-// mask can be used to select the correct bytes from r0 and r1. It's
-// only when we do wrap-around that the mask needs to be recalculated.
-//
-// I'll probably hold off on doing that level of optimisation for a
-// while, though. It's more important to get the basics of wrap-around
-// reading working, and from there doing enough to get matrix
-// multiplication working for Arm. Also, after that, refactoring to
-// make Arm/x86 implementations compatible with each other is a more
-// important target to aim for.
-
-
-
-
 
 #[cfg(test)]
 
