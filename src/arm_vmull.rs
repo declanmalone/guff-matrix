@@ -233,11 +233,15 @@ impl VmullEngine8x8 {
 
     unsafe fn xor_across(v : Self) -> u8 {
 	let mut v : uint64x1_t = vreinterpret_u64_u8(v.vec);
-	// it seems that n is bits? No. Bytes.
-	v = veor_u64(v, vshl_n_u64::<4>(v));
-	v = veor_u64(v, vshl_n_u64::<2>(v));
-	v = veor_u64(v, vshl_n_u64::<1>(v));
-	vget_lane_u8::<0>(vreinterpret_u8_u64(v))
+	// it seems that n is bits? No. Bytes. No, it's bits after all.
+	// eprintln!("Starting v: {:x?}", v);
+
+	v = veor_u64(v, vshr_n_u64::<32>(v));// eprintln!("after shift 4: {:x?}", v);
+	v = veor_u64(v, vshr_n_u64::<16>(v));// eprintln!("after shift 2: {:x?}", v);
+	v = veor_u64(v, vshr_n_u64::<8>(v)); // eprintln!("after shift 1: {:x?}", v);
+	let ret = vget_lane_u8::<0>(vreinterpret_u8_u64(v));
+	// eprintln!("xor_across returning: {:x}", ret);
+	ret
     }
 
     unsafe fn rotate_right(v : Self, amount : usize) -> Self {
@@ -728,15 +732,18 @@ impl Simd for VmullEngine8x8 {
     unsafe fn sum_across_n(lo : Self, hi : Self, n : usize, off : usize)
 			   -> (Self::E, Self) {
 	let m = if off + n >= 8 { hi } else { lo };
-	(
-	    Self::xor_across(
-		//	    vand_u8(
-		Self::mask_start_elements(
-		    Self::extract_from_offset(&lo, &hi, off),
-		    n
-		).into()),
-	    m,
-	)
+	let extracted = Self::extract_from_offset(&lo, &hi, off);
+	let masked = Self::mask_start_elements(extracted, n).into();
+	let result = Self::xor_across(masked);
+
+	eprintln!("Got lo: {:x?}, hi: {:x?}, n: {}, off: {}",
+		  lo.vec, hi.vec, n, off);
+
+	eprintln!("extracted: {:x?}", extracted.vec);
+	eprintln!("masked: {:x?}", masked.vec);
+	eprintln!("xor result: {:x}", result);
+
+	( result, m )
     }
 
 }
@@ -1056,10 +1063,15 @@ mod tests {
     #[test]
     fn test_xor_across() {
 	unsafe {
-	    let data   : uint8x8_t = transmute([1u8, 2,4,8,16,32,64,128]);
+	    let data : uint8x8_t = transmute([1u8, 2,4,8,16,32,64,128]);
 	    let got = VmullEngine8x8::xor_across(data.into());
 
 	    assert_eq!(255, got);
+
+	    let data : uint8x8_t = transmute([0u8,1, 2,4,8,16,32,64]);
+	    let got = VmullEngine8x8::xor_across(data.into());
+
+	    assert_eq!(0x7f, got);
 	}
     }
 
@@ -1336,4 +1348,120 @@ mod tests {
 	}
     }
 
+    #[test]
+    fn test_sum_across_n() {
+	// first byte of av is stored in lowest memory location
+	let a0 = [ 0u8,   1,  2,  4,  8, 16, 32,  64, ]; // 0b0111_1111 
+	let a1 = [ 128u8, 0,  1,  2,  4,  8, 16,  32, ]; // 0b1011_1111
+	let a2 = [ 1u8,   2,  4,  8, 16, 32, 64, 128, ];
+	let a3 = [ 0u8,   1,  2,  4,  8, 16, 32,  64, ];
+
+	unsafe {
+
+	    // convert 
+	    let a0 = VmullEngine8x8::read_simd(a0.as_ptr());
+	    let a1 = VmullEngine8x8::read_simd(a1.as_ptr());
+	    let a2 = VmullEngine8x8::read_simd(a2.as_ptr());
+	    let a3 = VmullEngine8x8::read_simd(a3.as_ptr());
+
+	    // simplest case 
+	    let (sum,_new_m) = VmullEngine8x8::sum_across_n(a0, a1, 8, 0);
+	    let expect : u8 = 0b0111_1111;
+	    eprintln!("expect {:x}", expect);
+	    assert_eq!(sum, expect);
+
+	    /*
+	    // n = power of two 
+	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 8, 0);
+	    assert_eq!(sum, 0b0111_1111);
+
+	    // simplest case, with offset 1
+	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 16, 1);
+	    let expect : u8 = 0b1111_1111 ^ 0b0011_1110;
+	    eprintln!("expect {:x}", expect);
+	    assert_eq!(sum, expect);
+
+	    // off = 0, n = 1
+	    let (sum,_new_m) = X86u8x16Long0x11b::sum_across_n(lo, hi, 1, 0);
+	    assert_eq!(sum, 0b0000_0000);
+	    
+	    // off = 0, n = 2
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 2, 0);
+	    assert_eq!(sum, 0b0000_0001);
+
+	    // off = 0, n = 3
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 3, 0);
+	    assert_eq!(sum, 0b0000_0011);
+
+	    // off = 0, n = 4
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 4, 0);
+	    assert_eq!(sum, 0b0000_0111);
+
+	    // off = 0, n = 5
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 5, 0);
+	    assert_eq!(sum, 0b0000_1111);
+
+	    // off = 0, n = 6
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 6, 0);
+	    assert_eq!(sum, 0b0001_1111);
+
+	    // off = 0, n = 7
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 7, 0);
+	    assert_eq!(sum, 0b0011_1111);
+
+	    // off = 0, n = 15
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 15, 0);
+	    let expect : u8 = 0b0111_1111 ^ 0b1001_1111;
+	    eprintln!("expect {:x}", expect);
+	    assert_eq!(sum, expect);
+	     */
+	}
+    }
+
+    #[test]
+    fn test_new_sum_across_n() {
+	// first byte of av is stored in lowest memory location
+	let a0 = [ 0u8,   1,  2,  4,  8, 16, 32,  64, ];
+	let a1 = [ 128u8, 0,  1,  2,  4,  8, 16,  32, ];
+	let a2 = [ 1u8,   2,  4,  8, 16, 32, 64, 128, ];
+	let a3 = [ 0u8,   1,  2,  4,  8, 16, 32,  64, ];
+
+	unsafe {
+
+	    // av[0] goes into low byte of lo
+	    let lo = VmullEngine8x8::read_simd(a0.as_ptr());
+	    let hi = VmullEngine8x8::read_simd(a1.as_ptr());
+
+	    /*
+	    // try different offsets
+	    
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 16, 3);
+	    let expect : u8 = 0b1111_1101 ^ 0b0011_1001;
+	    eprintln!("expect {:x}", expect);
+	    assert_eq!(sum, expect);
+
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 1, 3);
+	    let expect : u8 = 4;
+	    eprintln!("expect {:x}", expect);
+	    assert_eq!(sum, expect);
+
+	    let (sum,_new_m)
+		= X86u8x16Long0x11b::sum_across_n(lo, hi, 2, 3);
+	    let expect : u8 = 4 + 8;
+	    eprintln!("expect {:x}", expect);
+	    assert_eq!(sum, expect);
+	     */
+	}
+    }
+
+    
 }
