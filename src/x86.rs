@@ -371,6 +371,13 @@ impl Simd for X86u8x16Long0x11b {
     fn zero_element() -> Self::E { 0u8.into() }
     #[inline(always)]
     fn add_elements(a : Self::E, b : Self::E) -> Self::E { (a ^ b).into() }
+
+    #[inline(always)]
+    fn zero_vector() -> Self {
+    	unsafe {
+	    X86u8x16Long0x11b { vec :_mm_setzero_si128() }
+	}
+    }
     
     // #[inline(always)]
     fn cross_product(a : Self, b : Self) -> Self {
@@ -453,6 +460,191 @@ impl Simd for X86u8x16Long0x11b {
         return (extracted, m);
 
     }
+
+    // this needs more work (see Arm version for improvement)
+    // #[inline(always)]
+    //    unsafe fn read_next(&mut self) -> X86u8x16Long0x11b {
+    unsafe fn read_next(mod_index : &mut usize,
+			array_index : &mut usize,
+			array     : &[Self::E],
+			size      : usize,
+			ra_size : &mut usize,
+			ra : &mut Self)
+			-> Self {
+	//    where Self : Sized {
+
+	// loading up reg, rows, cols and mods every time might be a
+	// bit of a performance bottleneck.
+	//
+	// I'm not sure about how to get line-by-line profiling info.
+	//
+	// One thing that I can do is to have these values passed in
+	// by the caller and use debug_assert_eq!() to compare them
+	// with the proper values (in the case of rows, cols, anyway;
+	// we may decide not to store reg and mods).
+	//
+	// The problem with that (especially for reg) is that other
+	// matrix implementations may have other ideas about what
+	// state is required. For example, a matrix that implements
+	// read_next() using register-backed state will have to have 1
+	// or more internal registers...
+	let     reg0 = *ra;
+	let mut reg1 : X86u8x16Long0x11b;
+	let     ret  : X86u8x16Long0x11b;
+	let     array_size = size;
+	let     mods = *mod_index;
+	let mut new_mods = mods + 16;
+
+	// eprintln!("\n\nmods was {}, new_mods is {}", mods, new_mods);
+	
+	debug_assert!(mods < array_size);
+
+	// we will always read something from array
+	let addr_ptr = array.as_ptr()
+	    .offset(*array_index as isize) as *const std::arch::x86_64::__m128i;
+	reg1 = X86u8x16Long0x11b { vec :_mm_lddqu_si128(addr_ptr) };
+	*array_index += 16;
+
+	let mut deficit = 0;
+	if *array_index >= array_size && new_mods < array_size {
+	    deficit = *array_index - array_size;
+	}
+	// eprintln!("Deficit is {}", deficit);
+	
+	let old_offset = *ra_size;
+
+	// some bools to make logic clearer
+	let will_wrap_around : bool = new_mods >= array_size;
+	let had_readahead    : bool = old_offset != 0;
+
+	if will_wrap_around {
+	    // eprintln!("\n[wrapping]\n");
+	    new_mods -= array_size;
+	    // eprintln!("new mods {}", new_mods);
+
+	    let want_bytes = 16 - old_offset;
+	    // eprintln!("old_offset: {}", old_offset);
+	    // eprintln!("want_bytes: {}", want_bytes);
+
+	    let from_new = if want_bytes < new_mods {
+		want_bytes
+	    } else {
+		new_mods
+	    };
+	    // eprintln!("from_new: {}", from_new);
+
+	    let from_end = want_bytes - from_new;	  // from new read
+	    // eprintln!("from_end: {}", from_end);
+
+	    // reg1 <- reg0 | reg1 << old_offset
+	    if old_offset == 0 {
+		// noop: reg1 <- reg1
+	    } else {
+		// eprintln!("combining reg0, reg1");
+		reg1 = X86u8x16Long0x11b::combine_bytes(reg0, reg1, old_offset);
+	    }
+
+	    // Now determine whether we need any more bytes from new
+	    // stream.
+
+	    let have_bytes = old_offset + from_end;
+	    // eprintln!("have_bytes is {}", have_bytes);
+	    *array_index = 0;
+	    if have_bytes != 16 {
+
+		let missing = 16 - old_offset - from_end;
+
+		// need to read from start
+		let addr_ptr = array
+		    .as_ptr()
+		    .offset(*array_index as isize) as *const std::arch::x86_64::__m128i;
+		let new = X86u8x16Long0x11b { vec : _mm_lddqu_si128(addr_ptr) };
+		*array_index += 16;
+
+		// eprintln!("Will take {} bytes from new stream",  missing);
+
+		if have_bytes == 0 {
+		    reg1 = new
+		} else {   
+		    // append part of new stream to reg1
+		    // eprintln!("combining reg1 {:x?}, new {:x?}", reg1.vec, new.vec);
+		    reg1 = X86u8x16Long0x11b::combine_bytes(reg1, new, have_bytes);
+		}
+		// eprintln!("new reg1 {:x?}", reg1.vec);
+
+		// save unused part as new read-ahead
+		let future_bytes = 16 - missing;
+		// eprintln!("saving {} future bytes from new  {:x?}", future_bytes, new.vec);
+		if future_bytes != 0 {
+		    *ra = X86u8x16Long0x11b::future_bytes(new, future_bytes);
+		    // eprintln!("saved {:x?}", self.reg.vec);
+		}
+
+		// calculate updated ra
+		*ra_size = future_bytes;
+
+	    } else {
+		
+		*ra_size = 0
+	    }
+
+	    // save updated values and return
+	    *mod_index = new_mods;
+
+	    // return value
+	    ret = reg1
+	} else {
+	
+	    // This rework makes all the previously passing tests pass again.
+
+	    // <= because there's no straddling and we can continue rp at zero again
+	    // if mods + 16 <= array_size {
+
+	    // can safely read without wrap-around
+	    // eprintln!("\n[not wrapping]\n");
+	    // eprintln!("old_offset: {}", old_offset);
+
+	    // if we have no partial reads from before, must merge
+	    // that with this and save new remainder
+
+	    if had_readahead {
+
+		// eprintln!("combining reg0 {:x?}, reg1 {:x?}", reg0.vec, reg1.vec);
+		ret = X86u8x16Long0x11b::combine_bytes(reg0, reg1, old_offset);
+		// eprintln!("retval {:x?}", ret.vec);
+
+		// save unused part as new read-ahead
+
+		let future_bytes;
+
+		// OK. We may have got fewer than 16 bytes on the
+		// read. The logic that I'm using for when wrap-around
+		// happens lets that happen.
+		if deficit != 0 {
+		    future_bytes = old_offset - deficit;
+		    *array_index = 0;
+		} else {
+		    future_bytes = old_offset;
+		}
+		*ra_size = future_bytes;
+		// eprintln!("future_bytes is {}", future_bytes);
+		// eprintln!("saving {} bytes from reg1  {:x?}", old_offset, reg1.vec);
+		reg1 = X86u8x16Long0x11b::future_bytes(reg1, old_offset); // saved later
+	    } else {
+		ret = reg1;
+	    }
+	
+	    // update state and return
+	    //self.rp   += 16;
+	    *mod_index += 16;
+	    debug_assert!(*mod_index < array_size);
+	    *ra = reg1;
+	}
+
+	// eprintln!("returning {:x?}", ret.vec);
+	ret
+    }
+
 }
 
 
@@ -670,183 +862,6 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	self.mods = 0;
     }
 
-    // this needs more work
-    // #[inline(always)]
-    unsafe fn read_next(&mut self) -> X86u8x16Long0x11b {
-	// loading up reg, rows, cols and mods every time might be a
-	// bit of a performance bottleneck.
-	//
-	// I'm not sure about how to get line-by-line profiling info.
-	//
-	// One thing that I can do is to have these values passed in
-	// by the caller and use debug_assert_eq!() to compare them
-	// with the proper values (in the case of rows, cols, anyway;
-	// we may decide not to store reg and mods).
-	//
-	// The problem with that (especially for reg) is that other
-	// matrix implementations may have other ideas about what
-	// state is required. For example, a matrix that implements
-	// read_next() using register-backed state will have to have 1
-	// or more internal registers...
-	let     reg0 = self.reg;
-	let mut reg1 : X86u8x16Long0x11b;
-	let     ret  : X86u8x16Long0x11b;
-	let     array_size = self.rows * self.cols;
-	let     mods = self.mods;
-	let mut new_mods = mods + 16;
-
-	// another rework needed. 
-	//
-	// move all wrap-around to top
-	
-	// eprintln!("\n\nmods was {}, new_mods is {}", mods, new_mods);
-	
-	debug_assert!(mods < array_size);
-
-	// we will always read something from array
-	let addr_ptr = self.array.as_ptr().offset(self.rp as isize) as *const std::arch::x86_64::__m128i;
-	reg1 = X86u8x16Long0x11b { vec :_mm_lddqu_si128(addr_ptr) };
-	self.rp += 16;
-
-	let mut deficit = 0;
-	if self.rp >= array_size && new_mods < array_size {
-	    deficit = self.rp - array_size;
-	}
-	// eprintln!("Deficit is {}", deficit);
-	
-	let old_offset = self.ra;
-
-	// some bools to make logic clearer
-	let will_wrap_around : bool = new_mods >= array_size;
-	let had_readahead    : bool = old_offset != 0;
-
-	if will_wrap_around {
-	    // eprintln!("\n[wrapping]\n");
-	    new_mods -= array_size;
-	    // eprintln!("new mods {}", new_mods);
-
-	    let want_bytes = 16 - old_offset;
-	    // eprintln!("old_offset: {}", old_offset);
-	    // eprintln!("want_bytes: {}", want_bytes);
-	    
-	    let from_new = if want_bytes < new_mods {
-		want_bytes
-	    } else {
-		new_mods
-	    };
-	    // eprintln!("from_new: {}", from_new);
-
-	    let from_end = want_bytes - from_new;	  // from new read
-	    // eprintln!("from_end: {}", from_end);
-
-	    // reg1 <- reg0 | reg1 << old_offset
-	    if old_offset == 0 {
-		// noop: reg1 <- reg1
-	    } else {
-		// eprintln!("combining reg0, reg1");
-		reg1 = X86u8x16Long0x11b::combine_bytes(reg0, reg1, old_offset);
-	    }
-
-	    // Now determine whether we need any more bytes from new
-	    // stream.
-
-	    let have_bytes = old_offset + from_end;
-	    // eprintln!("have_bytes is {}", have_bytes);
-	    self.rp = 0;
-	    if have_bytes != 16 {
-
-		let missing = 16 - old_offset - from_end;
-
-		// need to read from start
-		let addr_ptr = self.array
-		    .as_ptr()
-		    .offset(self.rp as isize) as *const std::arch::x86_64::__m128i;
-		let new = X86u8x16Long0x11b { vec : _mm_lddqu_si128(addr_ptr) };
-		self.rp += 16;
-
-		// eprintln!("Will take {} bytes from new stream",  missing);
-
-		if have_bytes == 0 {
-		    reg1 = new
-		} else {   
-		    // append part of new stream to reg1
-		    // eprintln!("combining reg1 {:x?}, new {:x?}", reg1.vec, new.vec);
-		    reg1 = X86u8x16Long0x11b::combine_bytes(reg1, new, have_bytes);
-		}
-		// eprintln!("new reg1 {:x?}", reg1.vec);
-
-		// save unused part as new read-ahead
-		let future_bytes = 16 - missing;
-		// eprintln!("saving {} future bytes from new  {:x?}", future_bytes, new.vec);
-		if future_bytes != 0 {
-		    self.reg = X86u8x16Long0x11b::future_bytes(new, future_bytes);
-		    // eprintln!("saved {:x?}", self.reg.vec);
-		}
-
-		// calculate updated ra
-		self.ra = future_bytes;
-
-	    } else {
-		
-		self.ra = 0
-	    }
-
-	    // save updated values and return
-	    self.mods = new_mods;
-
-	    // return value
-	    ret = reg1
-	} else {
-	
-	    // This rework makes all the previously passing tests pass again.
-
-	    // <= because there's no straddling and we can continue rp at zero again
-	    // if mods + 16 <= array_size {
-
-	    // can safely read without wrap-around
-	    // eprintln!("\n[not wrapping]\n");
-	    // eprintln!("old_offset: {}", old_offset);
-
-	    // if we have no partial reads from before, must merge
-	    // that with this and save new remainder
-
-	    if had_readahead {
-
-		// eprintln!("combining reg0 {:x?}, reg1 {:x?}", reg0.vec, reg1.vec);
-		ret = X86u8x16Long0x11b::combine_bytes(reg0, reg1, old_offset);
-		// eprintln!("retval {:x?}", ret.vec);
-
-		// save unused part as new read-ahead
-
-		let future_bytes;
-
-		// OK. We may have got fewer than 16 bytes on the
-		// read. The logic that I'm using for when wrap-around
-		// happens lets that happen.
-		if deficit != 0 {
-		    future_bytes = old_offset - deficit;
-		    self.rp = 0;
-		} else {
-		    future_bytes = old_offset;
-		}
-		self.ra = future_bytes;
-		// eprintln!("future_bytes is {}", future_bytes);
-		// eprintln!("saving {} bytes from reg1  {:x?}", old_offset, reg1.vec);
-		reg1 = X86u8x16Long0x11b::future_bytes(reg1, old_offset); // saved later
-	    } else {
-		ret = reg1;
-	    }
-	
-	    // update state and return
-	    //self.rp   += 16;
-	    self.mods += 16;
-	    debug_assert!(self.mods < array_size);
-	    self.reg = reg1;
-	}
-
-	// eprintln!("returning {:x?}", ret.vec);
-	ret
-    }
     /* Removing this because it can go into matrix multiply
     fn write_next(&mut self, e : u8) {
 
@@ -1112,9 +1127,22 @@ mod tests {
 
 	let mut mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(4, 4, true);
 
+	let mut mat_mod_index = 0;
+	let mut mat_array_index = 0;
+	let     mat_array = mat.as_slice();
+	let     mat_size  = mat.size();
+	let mut mat_ra_size = 0;
+	let mut mat_ra = X86u8x16Long0x11b::zero_vector();
+	
 	unsafe {
         let zero : __m128i = _mm_set_epi32( 0, 0, 0, 0 );
-	    let first_read = mat.read_next();
+	    let first_read = X86u8x16Long0x11b::read_next(
+		&mut mat_mod_index,
+		&mut mat_array_index,
+		mat_array,
+		mat_size,
+		&mut mat_ra_size,
+		&mut mat_ra);
 	    assert_eq!(format!("{:?}",zero), format!("{:?}",first_read.vec))
 	}
     }
@@ -1126,6 +1154,13 @@ mod tests {
 
 	let identity = [ 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 ];
 	mat.fill(&identity[..]);
+
+	let mut mat_mod_index = 0;
+	let mut mat_array_index = 0;
+	let     mat_array = mat.as_slice();
+	let     mat_size  = mat.size();
+	let mut mat_ra_size = 0;
+	let mut mat_ra = X86u8x16Long0x11b::zero_vector();
 
 	unsafe {
 
@@ -1144,7 +1179,13 @@ mod tests {
 	    assert_eq!(format!("{:?}",one), format!("{:?}",id_reg));
 
 	    // now test read_next()
-	    let first_read = mat.read_next();
+	    let first_read = X86u8x16Long0x11b::read_next(
+			    &mut mat_mod_index,
+			    &mut mat_array_index,
+			    mat_array,
+			    mat_size,
+			    &mut mat_ra_size,
+			    &mut mat_ra);
 	    assert_eq!(format!("{:?}",one),
 		       format!("{:?}",first_read.vec));
 
@@ -1169,6 +1210,13 @@ mod tests {
 
 	let identity = [ 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 ];
 	mat.fill(&identity[..]);
+	let mut mat_mod_index = 0;
+	let mut mat_array_index = 0;
+	let     mat_array = mat.as_slice();
+	let     mat_size  = mat.size();
+	let mut mat_ra_size = 0;
+	let mut mat_ra = X86u8x16Long0x11b::zero_vector();
+	
 
 	unsafe {
 
@@ -1186,15 +1234,33 @@ mod tests {
 	    assert_eq!(format!("{:x?}",one), format!("{:x?}",id_reg));
 
 	    // first read_next() already tested above
-	    let read = mat.read_next();
+	    let read = X86u8x16Long0x11b::read_next(
+			    &mut mat_mod_index,
+			    &mut mat_array_index,
+			    mat_array,
+			    mat_size,
+			    &mut mat_ra_size,
+			    &mut mat_ra);
 	    assert_eq!(format!("{:x?}",one), format!("{:x?}",read.vec));
 
 	    // test second read_next(), should equal first
-	    let read = mat.read_next();
+	    let read = X86u8x16Long0x11b::read_next(
+			    &mut mat_mod_index,
+			    &mut mat_array_index,
+			    mat_array,
+			    mat_size,
+			    &mut mat_ra_size,
+			    &mut mat_ra);
 	    assert_eq!(format!("{:x?}",one), format!("{:x?}",read.vec));
 
 	    // test third read_next(), should equal first
-	    let read = mat.read_next();
+	    let read = X86u8x16Long0x11b::read_next(
+			    &mut mat_mod_index,
+			    &mut mat_array_index,
+			    mat_array,
+			    mat_size,
+			    &mut mat_ra_size,
+			    &mut mat_ra);
 	    assert_eq!(format!("{:x?}",one), format!("{:x?}",read.vec));
 	}
     }
@@ -1207,6 +1273,13 @@ mod tests {
 
 	// use constant shuffle table which has 16 * 3 elements
 	mat.fill(&SHUFFLE_MASK[..]);
+	let mut mat_mod_index = 0;
+	let mut mat_array_index = 0;
+	let     mat_array = mat.as_slice();
+	let     mat_size  = mat.size();
+	let mut mat_ra_size = 0;
+	let mut mat_ra = X86u8x16Long0x11b::zero_vector();
+	
 
 	unsafe {
 
@@ -1226,23 +1299,53 @@ mod tests {
 	    assert_eq!(format!("{:x?}",ff1), format!("{:x?}",ff2));
 
 	    // 1st
-	    let read = mat.read_next();
+	    let read = X86u8x16Long0x11b::read_next(
+			    &mut mat_mod_index,
+			    &mut mat_array_index,
+			    mat_array,
+			    mat_size,
+			    &mut mat_ra_size,
+			    &mut mat_ra);
 	    assert_eq!(format!("{:x?}",ff1), format!("{:x?}",read.vec));
 
 	    // 2nd
-	    let read = mat.read_next();
+	    let read = X86u8x16Long0x11b::read_next(
+			    &mut mat_mod_index,
+			    &mut mat_array_index,
+			    mat_array,
+			    mat_size,
+			    &mut mat_ra_size,
+			    &mut mat_ra);
 	    assert_eq!(format!("{:x?}",inc), format!("{:x?}",read.vec));
 
 	    // 3rd
-	    let read = mat.read_next();
+	    let read = X86u8x16Long0x11b::read_next(
+			    &mut mat_mod_index,
+			    &mut mat_array_index,
+			    mat_array,
+			    mat_size,
+			    &mut mat_ra_size,
+			    &mut mat_ra);
 	    assert_eq!(format!("{:x?}",ff1), format!("{:x?}",read.vec));
 
 	    // 4th
-	    let read = mat.read_next();
+	    let read = X86u8x16Long0x11b::read_next(
+			    &mut mat_mod_index,
+			    &mut mat_array_index,
+			    mat_array,
+			    mat_size,
+			    &mut mat_ra_size,
+			    &mut mat_ra);
 	    assert_eq!(format!("{:x?}",ff1), format!("{:x?}",read.vec));
 
 	    // 5th
-	    let read = mat.read_next();
+	    let read = X86u8x16Long0x11b::read_next(
+			    &mut mat_mod_index,
+			    &mut mat_array_index,
+			    mat_array,
+			    mat_size,
+			    &mut mat_ra_size,
+			    &mut mat_ra);
 	    assert_eq!(format!("{:x?}",inc), format!("{:x?}",read.vec));
 	}
     }
@@ -1264,6 +1367,14 @@ mod tests {
 
 	mat.fill(&stream[0..21]);
 
+	let mut mat_mod_index = 0;
+	let mut mat_array_index = 0;
+	let     mat_array = mat.as_slice();
+	let     mat_size  = mat.size();
+	let mut mat_ra_size = 0;
+	let mut mat_ra = X86u8x16Long0x11b::zero_vector();
+	
+
 	let array_ptr = stream.as_ptr();
 	let mut index = 0;
 
@@ -1282,7 +1393,13 @@ mod tests {
 		index += 16;
 		if index >= 21 { index -= 21 }
 
-		let mat_read = mat.read_next();
+		let mat_read = X86u8x16Long0x11b::read_next(
+			    &mut mat_mod_index,
+			    &mut mat_array_index,
+			    mat_array,
+			    mat_size,
+			    &mut mat_ra_size,
+			    &mut mat_ra);
 
 		assert_eq!(format!("{:x?}",mat_read.vec),
 			   format!("{:x?}",expect));
@@ -1310,12 +1427,26 @@ mod tests {
 		eprintln!("filling matrix with {} bytes", fill_vec.len());
 		mat.fill(&fill_vec[..]);
 
+		let mut mat_mod_index = 0;
+		let mut mat_array_index = 0;
+		let     mat_array = mat.as_slice();
+		let     mat_size  = mat.size();
+		let mut mat_ra_size = 0;
+		let mut mat_ra = X86u8x16Long0x11b::zero_vector();
+		
 		let mut ref_list = (1u8..=255).cycle().take(size).cycle();
 		let mut ref_vec = [0u8; 16];
 
 		for i in 0 .. size {
 		    unsafe {
-			let from_mat = mat.read_next();
+			let from_mat = X86u8x16Long0x11b::read_next(
+			    &mut mat_mod_index,
+			    &mut mat_array_index,
+			    mat_array,
+			    mat_size,
+			    &mut mat_ra_size,
+			    &mut mat_ra);
+
 			for i in 0..16 {
 			    ref_vec[i] = ref_list.next().unwrap();
 			}

@@ -111,8 +111,8 @@ use std::mem::transmute;
 
 pub trait ArmSimd {
 
+    type E : std::fmt::Display;	// element type (u8)
     type V;			// main vector storage type
-    type E;			// element type (u8)
     const SIMD_BYTES : usize;	// simd width in bytes
 
     // will have extra types here describing masks and such that will

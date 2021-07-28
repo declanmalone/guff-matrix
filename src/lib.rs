@@ -182,6 +182,8 @@ pub trait Simd {
     type V;			// vector type, eg [u8; 8]
     const SIMD_BYTES : usize;
 
+    fn zero_vector() -> Self;
+
     fn cross_product(a : Self, b : Self) -> Self;
     unsafe fn sum_across_n(m0 : Self, m1 : Self, n : usize, off : usize)
 			   -> (Self::E, Self);
@@ -190,6 +192,19 @@ pub trait Simd {
     // alternative to using num_traits.
     fn zero_element() -> Self::E;
     fn add_elements(a : Self::E, b : Self::E) -> Self::E;
+
+
+    // moved from SimdMatrix
+    unsafe fn read_next(mod_index : &mut usize,
+			array_index : &mut usize,
+			array     : &[Self::E],
+			size      : usize,
+			ra_size : &mut usize,
+			ra : &mut Self)
+	-> Self
+    where Self : Sized;
+    
+
 }
 
 // For the SimdMatrix trait, I'm not going to distinguish between
@@ -225,10 +240,16 @@ pub trait SimdMatrix<S : Simd> {
     // input matrix, since fill() should reset state to zero.
     fn reset(&mut self);
 
-    /// Wrap-around read of matrix, returning a Simd vector type
-    unsafe fn read_next(&mut self) -> S;
-    /// Wrap-around diagonal write of (output) matrix
-    // fn write_next(&mut self, val : S::E);
+    // Wrap-around read of matrix, returning a Simd vector type
+    // 
+    // unsafe fn read_next(&mut self) -> S; // moved to Simd
+    
+    // Wrap-around diagonal write of (output) matrix
+    // fn write_next(&mut self, val : S::E); // moved to matrix mul
+
+    
+
+    
     fn indexed_write(&mut self, index : usize, elem : S::E);
     fn as_mut_slice(&mut self) -> &mut [S::E];
     fn as_slice(&self) -> &[S::E];
@@ -284,27 +305,60 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
     let mut sum         = S::zero_element();
     let simd_width = S::SIMD_BYTES;
 
+    // Code for read_next() that was handled in SimdMatrix has now
+    // moved to Simd. We need to track those variables here.
+    let mut xform_mod_index = 0;
+    let mut xform_array_index = 0;
+    let     xform_array = xform.as_slice();
+    let     xform_size  = xform.size();
+    let mut xform_ra_size = 0;
+    let mut xform_ra = S::zero_vector();
+
+    let mut input_mod_index = 0;
+    let mut input_array_index = 0;
+    let     input_array = input.as_slice();
+    let     input_size  = input.size();
+    let mut input_ra_size = 0;
+    let mut input_ra = S::zero_vector();
+
     // we handle or and oc (was in matrix class)
     let mut or : usize = 0;
     let mut oc : usize = 0;
     let orows = output.rows();
     let ocols = output.cols();
 
-    // reset read_next state in case matrices reused for multiply
-    xform.reset();
-    input.reset();
-
     // read ahead two products
 
     let mut i0 : S;
     let mut x0 : S;
 
-    x0 = xform.read_next();
-    i0 = input.read_next();
+    x0 = S::read_next(&mut xform_mod_index,
+			 &mut xform_array_index,
+			 xform_array,
+			 xform_size,
+			 &mut xform_ra_size,
+			 &mut xform_ra);
+    i0 = S::read_next(&mut input_mod_index,
+			 &mut input_array_index,
+			 input_array,
+			 input_size,
+			 &mut input_ra_size,
+			 &mut input_ra);
+
     let mut m0 = S::cross_product(x0,i0);
 
-    x0  = xform.read_next();
-    i0  = input.read_next();
+    x0 = S::read_next(&mut xform_mod_index,
+			 &mut xform_array_index,
+			 xform_array,
+			 xform_size,
+			 &mut xform_ra_size,
+			 &mut xform_ra);
+    i0 = S::read_next(&mut input_mod_index,
+			 &mut input_array_index,
+			 input_array,
+			 input_size,
+			 &mut input_ra_size,
+			 &mut input_ra);
     let mut m1  = S::cross_product(x0,i0);
 
     let mut offset_mod_simd = 0;
@@ -323,8 +377,20 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
 		= S::sum_across_n(m0,m1,simd_width,offset_mod_simd);
 	    sum = S::add_elements(sum,part);
 	    m0 = new_m;
-	    x0  = xform.read_next();
-	    i0  = input.read_next();
+	    // x0  = xform.read_next();
+	    // i0  = input.read_next();
+	    x0 = S::read_next(&mut xform_mod_index,
+				 &mut xform_array_index,
+				 xform_array,
+				 xform_size,
+				 &mut xform_ra_size,
+				 &mut xform_ra);
+	    i0 = S::read_next(&mut input_mod_index,
+				 &mut input_array_index,
+				 input_array,
+				 input_size,
+				 &mut input_ra_size,
+				 &mut input_ra);
 	    m1  = S::cross_product(x0,i0); // new m1
 	    dp_counter += simd_width;
 	    // offset_mod_simd unchanged
@@ -343,8 +409,20 @@ pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
 	    if offset_mod_simd + want >= simd_width {
 		// consumed m0 and maybe some of m1 too
 		m0 = new_m;	// nothing left in old m0, so m0 <- m1
-		x0  = xform.read_next();
-		i0  = input.read_next();
+		// x0  = xform.read_next();
+		// i0  = input.read_next();
+		x0 = S::read_next(&mut xform_mod_index,
+				     &mut xform_array_index,
+				     xform_array,
+				     xform_size,
+				     &mut xform_ra_size,
+				     &mut xform_ra);
+		i0 = S::read_next(&mut input_mod_index,
+				     &mut input_array_index,
+				     input_array,
+				     input_size,
+				     &mut input_ra_size,
+				     &mut input_ra);
 		m1  = S::cross_product(x0,i0); // new m1
 	    } else {
 		// got what we needed from m0 but it still has some
@@ -573,7 +651,7 @@ mod tests {
 		X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,17,false);
 	    let vec : Vec<u8> = (1u8..=9 * 17).collect();
 	    input.fill(&vec[..]);
-
+	    
 	    let mut output =
 		X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,17,false);
 
@@ -621,6 +699,20 @@ mod tests {
 	    let vec : Vec<u8> = (1u8..=9 * 17).collect();
 	    input.fill(&vec[..]);
 
+	    let mut xform_mod_index = 0;
+	    let mut xform_array_index = 0;
+	    let     xform_array = transform.as_slice();
+	    let     xform_size  = transform.size();
+	    let mut xform_ra_size = 0;
+	    let mut xform_ra = X86u8x16Long0x11b::zero_vector();
+
+	    let mut input_mod_index = 0;
+	    let mut input_array_index = 0;
+	    let     input_array = input.as_slice();
+	    let     input_size  = input.size();
+	    let mut input_ra_size = 0;
+	    let mut input_ra = X86u8x16Long0x11b::zero_vector();
+
 	    let mut output =
 		X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(18,17,true);
 
@@ -665,6 +757,21 @@ mod tests {
 
 		    transform.fill(&(1u8..).take(n*k).collect::<Vec<u8>>()[..]);
 		    input.fill(&(1u8..).take(k*cols).collect::<Vec<u8>>()[..]);
+
+		    let mut xform_mod_index = 0;
+		    let mut xform_array_index = 0;
+		    let     xform_array = transform.as_slice();
+		    let     xform_size  = transform.size();
+		    let mut xform_ra_size = 0;
+		    let mut xform_ra = X86u8x16Long0x11b::zero_vector();
+
+		    let mut input_mod_index = 0;
+		    let mut input_array_index = 0;
+		    let     input_array = input.as_slice();
+		    let     input_size  = input.size();
+		    let mut input_ra_size = 0;
+		    let mut input_ra = X86u8x16Long0x11b::zero_vector();
+
 
 		    let mut ref_output =
 			X86SimpleMatrix::<x86::X86u8x16Long0x11b>
