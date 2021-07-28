@@ -203,7 +203,7 @@ pub trait ArmSimd {
 	where Self : Sized;
 			
     fn sum_across_n(lo : &Self, hi : &Self, mask : &Self, off : usize)
-		    -> (Self::E);
+		    -> Self::E;
     
 
 }
@@ -511,18 +511,17 @@ impl Simd for VmullEngine8x8 {
 	// should always be strictly positive
 	debug_assert!(available_at_end > 0);
 
-	eprintln!("Starting mod_index: {}", *mod_index);
-	eprintln!("Starting array_index: {}", *array_index);
-	eprintln!("Available: ra {} + at end {} = {}",
-		  *ra_size, available_at_end, available);
+	// eprintln!("Starting mod_index: {}", *mod_index);
+	// eprintln!("Starting array_index: {}", *array_index);
+	// eprintln!("Available: ra {} + at end {} = {}",
+	// 	  *ra_size, available_at_end, available);
 
 	// r0 could have full or partial simd in it
 	let read_ptr = array.as_ptr().offset((*array_index) as isize);
 	let mut r0 : Self = Self::read_simd(read_ptr as *const u8).into();
 	*array_index += 8;
 
-
-	eprintln!("Read r0: {:x?}", r0.vec);
+	// eprintln!("Read r0: {:x?}", r0.vec);
 
 	let result;
 	let mut have_r1 = false;
@@ -541,7 +540,7 @@ impl Simd for VmullEngine8x8 {
 	
 	if *array_index >= size {
 
-	    eprintln!("*array_index >= size");
+	    // eprintln!("*array_index >= size");
 	    
 	    // This means that r0 is the last read from the array.
 
@@ -562,7 +561,7 @@ impl Simd for VmullEngine8x8 {
 
 	    if available < 8 {
 
-		eprintln!("*array_index >= size && available < 8");
+		// eprintln!("*array_index >= size && available < 8");
 
 		let read_ptr = array.as_ptr().offset(0);
 		r1 = Self::read_simd(read_ptr as *const u8);
@@ -571,7 +570,7 @@ impl Simd for VmullEngine8x8 {
 		// We had `available` from ra and r0, and we read
 		// 8, then returned 8, so we still have `available`
 	    
-		eprintln!("Changing ra_size to available");
+		// eprintln!("Changing ra_size to available");
 		new_ra_size = available;
 
 		// how best to approach register shifting depends on
@@ -605,7 +604,7 @@ impl Simd for VmullEngine8x8 {
 		
 	    } else {  // array_index >= size && available >= 8
 
-		eprintln!("*array_index >= size && available >= 8");
+		// eprintln!("*array_index >= size && available >= 8");
 
 		// Scenario b for end of stream (no read)
 
@@ -639,7 +638,7 @@ impl Simd for VmullEngine8x8 {
 	    
 	} else {  // array_index < size
 
-	    eprintln!("*array_index < size");
+	    // eprintln!("*array_index < size");
 
 	    // finish up with the easiest case:
 	    if *ra_size > 0 {
@@ -661,13 +660,13 @@ impl Simd for VmullEngine8x8 {
 	if new_mod_index >= size { new_mod_index -= size }
 	*mod_index = new_mod_index;
 
-	eprintln!("final ra_size: {}", *ra_size);
-	eprintln!("final ra: {:x?}", (*ra).vec);
-	eprintln!("result: {:x?}", result.vec);
+	// eprintln!("final ra_size: {}", *ra_size);
+	// eprintln!("final ra: {:x?}", (*ra).vec);
+	// eprintln!("result: {:x?}", result.vec);
 	
 	if *array_index >= size {
 	    // not an error
-	    eprintln!("Fixing up array index {} to zero", *array_index);
+	    // eprintln!("Fixing up array index {} to zero", *array_index);
 	    *array_index = 0;
 	}
 
@@ -885,6 +884,89 @@ pub fn simd_mull_reduce_poly8x8(a : &poly8x8_t, b: &poly8x8_t)
 // explicitly storing r1.
 //
 // (state stored within matrix multiply routine)
+
+
+/// Matrix storage type for Arm
+///
+pub struct ArmMatrix<S : Simd> {
+
+    // set up a dummy value as an alternative to PhantomData
+    _zero: S,
+
+    // to implement regular matrix stuff
+    rows : usize,
+    cols : usize,
+    pub array : Vec<u8>,
+    is_rowwise : bool,
+}
+
+/// Concrete implementation of matrix for Arm
+impl ArmMatrix<VmullEngine8x8> {
+
+    pub fn new(rows : usize, cols : usize, is_rowwise : bool) -> Self {
+	let size = rows * cols;
+	if size < 8 {
+	    panic!("This matrix can't handle rows * cols < 8 bytes");
+	}
+
+	// add an extra 15 guard bytes beyond size
+	let array = vec![0u8; size + 7];
+
+	// set up a dummy value as an alternative to PhantomData
+	let _zero = VmullEngine8x8::zero_vector();
+	
+	ArmMatrix::<VmullEngine8x8> {
+	    rows, cols, is_rowwise, array, _zero
+	}
+    }
+
+    pub fn fill(&mut self, data : &[u8]) {
+	let size = self.size();
+	if data.len() != size {
+	    panic!("Supplied {} data bytes  != matrix size {}",
+	    data.len(), size);
+	}
+	self.array[0..size].copy_from_slice(data);
+    }
+
+    pub fn new_with_data(rows : usize, cols : usize, is_rowwise : bool,
+		     data : &[u8]) -> Self {
+	let mut this = Self::new(rows, cols, is_rowwise);
+	this.fill(data);
+	this
+    }
+
+}
+
+impl SimdMatrix<VmullEngine8x8> for ArmMatrix<VmullEngine8x8> {
+
+    #[inline(always)]
+    fn rows(&self) -> usize { self.rows }
+
+    #[inline(always)]
+    fn cols(&self) -> usize { self.cols }
+
+    #[inline(always)]
+    fn is_rowwise(&self) -> bool { self.is_rowwise }
+
+    fn as_slice(&self) -> &[u8] {
+	let size = self.size();
+	&self.array[0..size]
+    }
+
+    #[inline(always)]
+    fn indexed_write(&mut self, index : usize, elem : u8) {
+	self.array[index] = elem;
+    }
+
+    fn as_mut_slice(&mut self) -> &mut [u8] {
+	let size = self.size();
+	&mut self.array[0..size]
+    }
+}
+
+
+
 
 #[cfg(test)]
 

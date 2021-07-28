@@ -458,12 +458,10 @@ impl Simd for X86u8x16Long0x11b {
 	// eprintln!("Returning extracted {}, vector {:x?}\n", extracted, m);
 	
         return (extracted, m);
-
     }
 
     // this needs more work (see Arm version for improvement)
     // #[inline(always)]
-    //    unsafe fn read_next(&mut self) -> X86u8x16Long0x11b {
     unsafe fn read_next(mod_index : &mut usize,
 			array_index : &mut usize,
 			array     : &[Self::E],
@@ -471,23 +469,7 @@ impl Simd for X86u8x16Long0x11b {
 			ra_size : &mut usize,
 			ra : &mut Self)
 			-> Self {
-	//    where Self : Sized {
 
-	// loading up reg, rows, cols and mods every time might be a
-	// bit of a performance bottleneck.
-	//
-	// I'm not sure about how to get line-by-line profiling info.
-	//
-	// One thing that I can do is to have these values passed in
-	// by the caller and use debug_assert_eq!() to compare them
-	// with the proper values (in the case of rows, cols, anyway;
-	// we may decide not to store reg and mods).
-	//
-	// The problem with that (especially for reg) is that other
-	// matrix implementations may have other ideas about what
-	// state is required. For example, a matrix that implements
-	// read_next() using register-backed state will have to have 1
-	// or more internal registers...
 	let     reg0 = *ra;
 	let mut reg1 : X86u8x16Long0x11b;
 	let     ret  : X86u8x16Long0x11b;
@@ -501,7 +483,8 @@ impl Simd for X86u8x16Long0x11b {
 
 	// we will always read something from array
 	let addr_ptr = array.as_ptr()
-	    .offset(*array_index as isize) as *const std::arch::x86_64::__m128i;
+	    .offset(*array_index as isize)
+	    as *const std::arch::x86_64::__m128i;
 	reg1 = X86u8x16Long0x11b { vec :_mm_lddqu_si128(addr_ptr) };
 	*array_index += 16;
 
@@ -541,7 +524,8 @@ impl Simd for X86u8x16Long0x11b {
 		// noop: reg1 <- reg1
 	    } else {
 		// eprintln!("combining reg0, reg1");
-		reg1 = X86u8x16Long0x11b::combine_bytes(reg0, reg1, old_offset);
+		reg1 = X86u8x16Long0x11b
+		    ::combine_bytes(reg0, reg1, old_offset);
 	    }
 
 	    // Now determine whether we need any more bytes from new
@@ -557,24 +541,29 @@ impl Simd for X86u8x16Long0x11b {
 		// need to read from start
 		let addr_ptr = array
 		    .as_ptr()
-		    .offset(*array_index as isize) as *const std::arch::x86_64::__m128i;
-		let new = X86u8x16Long0x11b { vec : _mm_lddqu_si128(addr_ptr) };
+		    .offset(*array_index as isize)
+		    as *const std::arch::x86_64::__m128i;
+		let new = X86u8x16Long0x11b {
+		    vec : _mm_lddqu_si128(addr_ptr) };
 		*array_index += 16;
 
-		// eprintln!("Will take {} bytes from new stream",  missing);
+		// eprintln!("Taking {} bytes from new stream", missing);
 
 		if have_bytes == 0 {
 		    reg1 = new
 		} else {   
 		    // append part of new stream to reg1
-		    // eprintln!("combining reg1 {:x?}, new {:x?}", reg1.vec, new.vec);
-		    reg1 = X86u8x16Long0x11b::combine_bytes(reg1, new, have_bytes);
+		    // eprintln!("combining reg1 {:x?}, new {:x?}",
+		    // reg1.vec, new.vec);
+		    reg1 = X86u8x16Long0x11b
+			::combine_bytes(reg1, new, have_bytes);
 		}
 		// eprintln!("new reg1 {:x?}", reg1.vec);
 
 		// save unused part as new read-ahead
 		let future_bytes = 16 - missing;
-		// eprintln!("saving {} future bytes from new  {:x?}", future_bytes, new.vec);
+		// eprintln!("saving {} future bytes from new  {:x?}",
+		// future_bytes, new.vec);
 		if future_bytes != 0 {
 		    *ra = X86u8x16Long0x11b::future_bytes(new, future_bytes);
 		    // eprintln!("saved {:x?}", self.reg.vec);
@@ -584,32 +573,19 @@ impl Simd for X86u8x16Long0x11b {
 		*ra_size = future_bytes;
 
 	    } else {
-		
 		*ra_size = 0
 	    }
 
 	    // save updated values and return
 	    *mod_index = new_mods;
-
-	    // return value
 	    ret = reg1
 	} else {
 	
 	    // This rework makes all the previously passing tests pass again.
-
-	    // <= because there's no straddling and we can continue rp at zero again
-	    // if mods + 16 <= array_size {
-
-	    // can safely read without wrap-around
-	    // eprintln!("\n[not wrapping]\n");
-	    // eprintln!("old_offset: {}", old_offset);
-
-	    // if we have no partial reads from before, must merge
-	    // that with this and save new remainder
-
 	    if had_readahead {
 
-		// eprintln!("combining reg0 {:x?}, reg1 {:x?}", reg0.vec, reg1.vec);
+		// eprintln!("combining reg0 {:x?}, reg1 {:x?}",
+		// reg0.vec, reg1.vec);
 		ret = X86u8x16Long0x11b::combine_bytes(reg0, reg1, old_offset);
 		// eprintln!("retval {:x?}", ret.vec);
 
@@ -628,14 +604,14 @@ impl Simd for X86u8x16Long0x11b {
 		}
 		*ra_size = future_bytes;
 		// eprintln!("future_bytes is {}", future_bytes);
-		// eprintln!("saving {} bytes from reg1  {:x?}", old_offset, reg1.vec);
-		reg1 = X86u8x16Long0x11b::future_bytes(reg1, old_offset); // saved later
+		// eprintln!("saving {} bytes from reg1  {:x?}",
+		//   old_offset, reg1.vec);
+		reg1 = X86u8x16Long0x11b::future_bytes(reg1, old_offset);
 	    } else {
 		ret = reg1;
 	    }
 	
 	    // update state and return
-	    //self.rp   += 16;
 	    *mod_index += 16;
 	    debug_assert!(*mod_index < array_size);
 	    *ra = reg1;
@@ -647,38 +623,12 @@ impl Simd for X86u8x16Long0x11b {
 
 }
 
+/// Matrix storage type for x86
+///
+pub struct X86Matrix<S : Simd> {
 
-// We can have several different matrix implementations, each with
-// their own way of implementing read_next(). For example, we could
-// have variants such as:
-//
-// * caching complete matrix in a small number of registers
-// * work over memory, but for small matrix sizes (needs extra checks)
-// * work over memory with "safe" (not small) sizes
-// 
-
-// First version ... the latter ... matrices are at least as big as
-// simd. In fact, make it greater than twice the simd size. Smallest
-// usable identity matrix is then 4x4 = 16.
-//
-// My reason for choosing this is that it makes read-ahead easier if
-// we can start off (in the constructor) by reading in a full register
-// without needing to worry about wrap-around.
-
-/// Matrix storage type using direct memory accesses to implement
-/// wrap-around.
-/// 
-pub struct X86SimpleMatrix<S : Simd> {
-
-    // to implement read_next
-    reg    : S,			// single read-ahead register
-    ra     : usize,		// readahead amount (how full is reg)
-    rp     : usize,		// read pointer (index) in array
-    mods   : usize,		// counter mod size of array
-    
-    // to implement write_next
-    // or : usize,
-    // oc : usize,
+    // set up a dummy value as an alternative to PhantomData
+    _zero: S,
 
     // to implement regular matrix stuff
     rows : usize,
@@ -688,32 +638,22 @@ pub struct X86SimpleMatrix<S : Simd> {
 }
 
 /// Concrete implementation of matrix for x86_64
-impl X86SimpleMatrix<X86u8x16Long0x11b> {
+impl X86Matrix<X86u8x16Long0x11b> {
 
     pub fn new(rows : usize, cols : usize, is_rowwise : bool) -> Self {
-	if rows * cols < 16 {
-	    panic!("This SIMD matrix implementation can't handle rows * cols < 16 bytes");
+	let size = rows * cols;
+	if size < 16 {
+	    panic!("This matrix can't handle rows * cols < 16 bytes");
 	}
 
-	// let or = 0;
-	// let oc = 0;
-	let ra = 0;
-	let rp = 0;
-	let mods = 0;
+	// add an extra 15 guard bytes beyond size
+	let array = vec![0u8; size + 15];
 
-	// add an extra 15 guard bytes to deal with reading past end
-	// of matrix
-	let array = vec![0u8; rows * cols + 15];
-
-	// set up a dummy value for reg; set it up properly after fill()
-	let reg;
-	unsafe {
-	    reg = X86u8x16Long0x11b { vec :_mm_setzero_si128() };
-	}
-
-	X86SimpleMatrix::<X86u8x16Long0x11b> {
-	    rows, cols, is_rowwise, array,
-	    reg, rp, ra, mods
+	// set up a dummy value as an alternative to PhantomData
+	let _zero = X86u8x16Long0x11b::zero_vector();
+	
+	X86Matrix::<X86u8x16Long0x11b> {
+	    rows, cols, is_rowwise, array, _zero
 	}
     }
 
@@ -724,11 +664,8 @@ impl X86SimpleMatrix<X86u8x16Long0x11b> {
 	    data.len(), size);
 	}
 	self.array[0..size].copy_from_slice(data);
-
-	self.reset();
     }
 
-    // convenience
     pub fn new_with_data(rows : usize, cols : usize, is_rowwise : bool,
 		     data : &[u8]) -> Self {
 	let mut this = Self::new(rows, cols, is_rowwise);
@@ -742,99 +679,22 @@ impl X86SimpleMatrix<X86u8x16Long0x11b> {
 // Entries with high bit set => 0
 // Other entries => select byte at that index
 const SHUFFLE_MASK : [u8; 48] = [
-    255u8, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-        0,   1,   2,   3,   4,   5,   6,   7,   8,   9,  10,  11,  12,  13,  14,  15,
-    255u8, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255u8, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255,
+    0,   1,   2,   3,   4,   5,   6,   7,
+    8,   9,  10,  11,  12,  13,  14,  15,
+    255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255,
 ];
 
-//
-// Doing all aligned reads, eg simd width 4, matrix size 5
-//
-// Reads at A and E are aligned:
-//
-// Matrix     ABCD EABC DEAB CDEA BCDE
-//            ABCD
-//                 E---
-//                  ABC D
-//                       E-- -
-//                        AB CD
-//                             E- --
-//                              A BCD
-//                                   E ---
-//
-//            ABCD EABC DEAB CDEA BCDE
-//
-// DEAB calculation shows full complexity...
-//
-// * have D left over from previous step
-// * reads off end of matrix
-// * has to start off reading again from A
-// * combines DEAB to give current SIMD answer
-// * stashes CD for next step
-//
-// The next one, CDEA is similar.
-//
-// Correct code hinges on modular arithmetic, particularly the value
-// of `position % matrix size`
-//
-// ABCD calculation:
-//
-// pos (0,4): no wrap
-// ra was 0, so full ABCD read returned
-//
-// EABC calculation:
-//
-// pos  (4,8) overflows giving new pos 8-5 = 3
-// ra was 0, so prev + E = E (null shuffle)
-// take 4-3 = 1 from end, 3 from new giving EABC
-// ra becomes 1, containing D
-//
-// DEAB calculation:
-//
-// pos (3,7) overflows giving new pos 7-5 = 2
-// ra was 1, so add D+E
-// take 4-2 = 2 from DE and 2 from new giving DEAB
-// ra becomes 4 - 2 = 2, containing CD
-//
-// CDEA calculation:
-//
-// pos (2,6) overflows giving new pos 6-5 = 1
-// ra was 2, so add CD + E giving CDE
-// take 4-1 = 3 from CDE and 1 from new, giving CDEA
-// ra becomes 4 - 1 = 3, containing BCD
-//
-// BCDE calculation:
-//
-// pos (1,5): overflows giving new pos 5-5 = 0
-// ra was 3, so add BCD + E
-// take 4 - 0 = 4 from BCDE and 0 from new, giving BCDE
-// ra becomes 4 - 0 = 4 containing ABCD
-//
-// ABCD calculation (restart, but this time with readahead of 4!)
-//
-// pos (0,4): no wrap
-// ra was 4, so add ABCD + null
-// take 4 - 4 = 0 from ABCD and 4 from new giving E---
-//
-// So, the last calculation isn't correct. It can be avoided by not
-// reading from the new stream in the final BCDE calculation of the
-// first cycle.
-//
-// ie, if we would ever combine 0 bytes from the new stream, we won't
-// read them in this step. So, ra will always be calculated mod 4.
-//
-// This makes sense because we then have two interlocking counters,
-// one mod 5 and one mod 4, and the cycle will continue back at the
-// start again after lcm(4,5) = byte 20 reads.
-
-impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
-
-    //const SIMD_SIZE : usize = 128;
+impl SimdMatrix<X86u8x16Long0x11b> for X86Matrix<X86u8x16Long0x11b> {
 
     #[inline(always)]
     fn rows(&self) -> usize { self.rows }
+
     #[inline(always)]
     fn cols(&self) -> usize { self.cols }
+
     #[inline(always)]
     fn is_rowwise(&self) -> bool { self.is_rowwise }
 
@@ -852,32 +712,7 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86SimpleMatrix<X86u8x16Long0x11b> {
 	let size = self.size();
 	&mut self.array[0..size]
     }
-
-    fn reset(&mut self) {
-	unsafe {
-	    self.reg = X86u8x16Long0x11b { vec :_mm_setzero_si128() };
-	}
-	self.ra  = 0; 		// read-ahead amount
-	self.rp = 0;
-	self.mods = 0;
-    }
-
-    /* Removing this because it can go into matrix multiply
-    fn write_next(&mut self, e : u8) {
-
-	let or = self.or;
-	let oc = self.oc;
-
-	let index = self.rowcol_to_index(or, oc);
-	self.array[index] = e;
-
-	self.or = if or + 1 < self.rows { or + 1 } else { 0 };
-	self.oc = if oc + 1 < self.cols { oc + 1 } else { 0 };
-
-    }
-     */
 }
-
 
 
 #[cfg(test)]
@@ -1111,21 +946,21 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_matrix_too_small() {
-	let _ = X86SimpleMatrix::<X86u8x16Long0x11b>::new(3, 5, true);
+	let _ = X86Matrix::<X86u8x16Long0x11b>::new(3, 5, true);
     }
 
     #[test]
     fn test_matrix_goldilocks() {
-	let _ = X86SimpleMatrix::<X86u8x16Long0x11b>::new(2, 8, true);
-	let _ = X86SimpleMatrix::<X86u8x16Long0x11b>::new(8, 2, true);
-	let _ = X86SimpleMatrix::<X86u8x16Long0x11b>::new(16, 1, true);
-	let _ = X86SimpleMatrix::<X86u8x16Long0x11b>::new(4, 4, true);
+	let _ = X86Matrix::<X86u8x16Long0x11b>::new(2, 8, true);
+	let _ = X86Matrix::<X86u8x16Long0x11b>::new(8, 2, true);
+	let _ = X86Matrix::<X86u8x16Long0x11b>::new(16, 1, true);
+	let _ = X86Matrix::<X86u8x16Long0x11b>::new(4, 4, true);
     }
 
     #[test]
     fn test_matrix_read_pre_fill() {
 
-	let mut mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(4, 4, true);
+	let     mat = X86Matrix::<X86u8x16Long0x11b>::new(4, 4, true);
 
 	let mut mat_mod_index = 0;
 	let mut mat_array_index = 0;
@@ -1150,7 +985,7 @@ mod tests {
     #[test]
     fn test_matrix_read_post_fill() {
 
-	let mut mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(4, 4, true);
+	let mut mat = X86Matrix::<X86u8x16Long0x11b>::new(4, 4, true);
 
 	let identity = [ 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 ];
 	mat.fill(&identity[..]);
@@ -1206,7 +1041,7 @@ mod tests {
     fn test_matrix_easy_wraparound() {
 
 	// simplest case where matrix size == simd size
-	let mut mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(4, 4, true);
+	let mut mat = X86Matrix::<X86u8x16Long0x11b>::new(4, 4, true);
 
 	let identity = [ 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 ];
 	mat.fill(&identity[..]);
@@ -1269,7 +1104,7 @@ mod tests {
     fn test_matrix_internal_read() { // 3 non-wrapping + 2 wrapping
 
 	// case where matrix size is a multiple of simd size
-	let mut mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(16, 3, true);
+	let mut mat = X86Matrix::<X86u8x16Long0x11b>::new(16, 3, true);
 
 	// use constant shuffle table which has 16 * 3 elements
 	mat.fill(&SHUFFLE_MASK[..]);
@@ -1363,7 +1198,7 @@ mod tests {
 	let stream = [0u8,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,
 		      0u8,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20];
 	
-	let mut mat = X86SimpleMatrix::<X86u8x16Long0x11b>::new(7, 3, true);
+	let mut mat = X86Matrix::<X86u8x16Long0x11b>::new(7, 3, true);
 
 	mat.fill(&stream[0..21]);
 
@@ -1418,7 +1253,7 @@ mod tests {
 		// no restrictions on how many cols, since we're only
 		// calling read_next, not doing matrix multiply
 		let size = rows * cols;
-		let mut mat = X86SimpleMatrix::<X86u8x16Long0x11b>
+		let mut mat = X86Matrix::<X86u8x16Long0x11b>
 		    ::new(rows, cols, true);
 
 		let fill_list = (1u8..=255).cycle().take(size);

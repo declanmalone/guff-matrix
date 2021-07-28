@@ -104,17 +104,17 @@ pub fn _monomorph() {
 	0,0,0, 0,0,0, 0,0,1,
     ];
     let mut transform =	// mut because of iterator
-	X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,9,true);
+	Matrix::new(9,9,true);
     transform.fill(&identity[..]);
     
     // 17 is coprime to 9
     let mut input =
-	X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,17,false);
+	Matrix::new(9,17,false);
     let vec : Vec<u8> = (1u8..=9 * 17).collect();
     input.fill(&vec[..]);
 
     let mut output =
-	X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,17,false);
+	Matrix::new(9,17,false);
 
     // works if output is stored in colwise format
     inner_fn(&mut transform, &mut input, &mut output);
@@ -137,41 +137,29 @@ pub mod arm_vmull;
 #[cfg(feature = "simulator")]
 pub mod simulator;
 
-/// Greatest Common Divisor for two integers
-pub fn gcd(mut a : usize, mut b : usize) -> usize {
-  let mut t;
-    loop {
-	if b == 0 { return a }
-	t = b;
-	b = a % b;
-	a = t;
-    }
-}
 
-/// Greatest Common Divisor for three integers
-pub fn gcd3(a : usize, b : usize, c: usize) -> usize {
-    gcd(a, gcd(b,c))
-}
+// I had wanted to have different matrix implementations that offered
+// different ways of implementing read_next(). I have moved away from
+// that goal by moving state out of matrices, though. It may be better
+// to offer different multiply functions.
+//
+// My most immediate goal now is providing Matrix and multiply support
+// for Arm. I don't want to just copy/paste code, but that might be
+// the best solution for now. To support that, I'll define an
+// arch-dependent Matrix type:
 
-/// Greatest Common Divisor for four integers
-pub fn gcd4(a : usize, b : usize, c: usize, d : usize) -> usize {
-    gcd(gcd(a,b), gcd(c,d))
-}
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub type Matrix = x86::X86Matrix<x86::X86u8x16Long0x11b>;
 
-/// Least Common Multiple for two integers
-pub fn lcm(a : usize, b : usize) -> usize {
-    (a / gcd(a,b)) * b
-}
+#[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), feature = "arm_vmull"))]
+pub type Matrix = arm_vmull::ArmMatrix::<arm_vmull::VmullEngine8x8>;
 
-/// Least Common Multiple for three integers
-pub fn lcm3(a : usize, b : usize, c: usize) -> usize {
-    lcm( lcm(a,b), c)
-}
+// (actually, copy/paste worked with only type changes, so I can work
+// on making a more generic matrix)
 
-/// Least Common Multiple for four integers
-pub fn lcm4(a : usize, b : usize, c: usize, d : usize) -> usize {
-    lcm( lcm(a,b), lcm(c,d) )
-}
+/// GCD and LCM functions
+pub mod numbers;
+use numbers::*;
 
 /// SIMD support, based on `simulator` module
 ///
@@ -238,7 +226,7 @@ pub trait SimdMatrix<S : Simd> {
     // means that re-using the xform can/will result in the
     // read_next() state being wrong. It doesn't matter so much for
     // input matrix, since fill() should reset state to zero.
-    fn reset(&mut self);
+    // fn reset(&mut self);
 
     // Wrap-around read of matrix, returning a Simd vector type
     // 
@@ -627,8 +615,10 @@ mod tests {
     // }
 
     #[test]
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     // test taken from simulator.rs
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64",
+	      all(any(target_arch = "aarch64", target_arch = "arm"),
+		  feature = "arm_vmull")))]
     fn simd_identity_k9_multiply_colwise() {
 	unsafe {
 	    let identity = [
@@ -643,17 +633,17 @@ mod tests {
 		0,0,0, 0,0,0, 0,0,1,
 	    ];
 	    let mut transform =	// mut because of iterator
-		X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,9,true);
+		Matrix::new(9,9,true);
 	    transform.fill(&identity[..]);
 
 	    // 17 is coprime to 9
 	    let mut input =
-		X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,17,false);
+		Matrix::new(9,17,false);
 	    let vec : Vec<u8> = (1u8..=9 * 17).collect();
 	    input.fill(&vec[..]);
 	    
 	    let mut output =
-		X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,17,false);
+		Matrix::new(9,17,false);
 
 	    // works if output is stored in colwise format
 	    simd_warm_multiply(&mut transform, &mut input, &mut output);
@@ -663,8 +653,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     // test taken from simulator.rs
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64",
+	      all(any(target_arch = "aarch64", target_arch = "arm"),
+		  feature = "arm_vmull")))]
     fn simd_double_identity() {
 	// seems like lower half of matrix not being output
 	// copy identity matrix down there to test
@@ -690,31 +682,17 @@ mod tests {
 		0,0,0, 0,0,0, 0,0,1,
 	    ];
 	    let mut transform =	// mut because of iterator
-		X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(18,9,true);
+		Matrix::new(18,9,true);
 	    transform.fill(&double_identity[..]);
 
 	    // 17 is coprime to 9
 	    let mut input =
-		X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,17,false);
+		Matrix::new(9,17,false);
 	    let vec : Vec<u8> = (1u8..=9 * 17).collect();
 	    input.fill(&vec[..]);
 
-	    let mut xform_mod_index = 0;
-	    let mut xform_array_index = 0;
-	    let     xform_array = transform.as_slice();
-	    let     xform_size  = transform.size();
-	    let mut xform_ra_size = 0;
-	    let mut xform_ra = X86u8x16Long0x11b::zero_vector();
-
-	    let mut input_mod_index = 0;
-	    let mut input_array_index = 0;
-	    let     input_array = input.as_slice();
-	    let     input_size  = input.size();
-	    let mut input_ra_size = 0;
-	    let mut input_ra = X86u8x16Long0x11b::zero_vector();
-
 	    let mut output =
-		X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(18,17,true);
+		Matrix::new(18,17,true);
 
 	    // works if output is stored in colwise format
 	    simd_warm_multiply(&mut transform, &mut input, &mut output);
@@ -740,45 +718,31 @@ mod tests {
 
     // test conformance with a variety of matrix sizes
     #[test]
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64",
+	      all(any(target_arch = "aarch64", target_arch = "arm"),
+		  feature = "arm_vmull")))]
     fn test_ref_simd_conformance() {
-
 	let cols = 19;
 	for k in 4..9 {
 	    for n in 4..17 {
 		eprintln!("testing n={}, k={}", n, k);
 		unsafe {
 		    let mut transform =	// mut because of iterator
-			X86SimpleMatrix::<x86::X86u8x16Long0x11b>
+			Matrix
 			::new(n,k,true);
 		    let mut input =
-			X86SimpleMatrix::<x86::X86u8x16Long0x11b>
+			Matrix
 			::new(k,cols,false);
 
 		    transform.fill(&(1u8..).take(n*k).collect::<Vec<u8>>()[..]);
 		    input.fill(&(1u8..).take(k*cols).collect::<Vec<u8>>()[..]);
 
-		    let mut xform_mod_index = 0;
-		    let mut xform_array_index = 0;
-		    let     xform_array = transform.as_slice();
-		    let     xform_size  = transform.size();
-		    let mut xform_ra_size = 0;
-		    let mut xform_ra = X86u8x16Long0x11b::zero_vector();
-
-		    let mut input_mod_index = 0;
-		    let mut input_array_index = 0;
-		    let     input_array = input.as_slice();
-		    let     input_size  = input.size();
-		    let mut input_ra_size = 0;
-		    let mut input_ra = X86u8x16Long0x11b::zero_vector();
-
-
 		    let mut ref_output =
-			X86SimpleMatrix::<x86::X86u8x16Long0x11b>
+			Matrix
 			::new(n,cols,true);
 
 		    let mut simd_output =
-			X86SimpleMatrix::<x86::X86u8x16Long0x11b>
+			Matrix
 			::new(n,cols,true);
 
 		    // do multiply both ways

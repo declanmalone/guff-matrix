@@ -69,12 +69,12 @@ fn simd_x86_gf8_matrix_mul(cols : usize) {
 	    0,0,0, 0,0,0, 0,0,1,
 	];
 	let mut transform =	// mut because of iterator
-	    X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,9,true);
+	    X86Matrix::<x86::X86u8x16Long0x11b>::new(9,9,true);
 	transform.fill(&identity[..]);
 
 	// 17 is coprime to 9
 	let mut input =
-	    X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,cols,false);
+	    X86Matrix::<x86::X86u8x16Long0x11b>::new(9,cols,false);
 
 	// create a vector with elements 1..255 repeating
 	let src : Vec<u8> = (1u8..=255).collect();
@@ -85,7 +85,7 @@ fn simd_x86_gf8_matrix_mul(cols : usize) {
 	input.fill(&vec[..]);
 
 	let mut output =
-	    X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,cols,false);
+	    X86Matrix::<x86::X86u8x16Long0x11b>::new(9,cols,false);
 
 	// works if output is stored in colwise format
 	simd_warm_multiply(&mut transform, &mut input, &mut output);
@@ -120,12 +120,12 @@ fn ref_gf8_matrix_mul(cols : usize) {
 	    0,0,0, 0,0,0, 0,0,1,
 	];
 	let mut xform =		// mut because of iterator
-	    X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,9,true);
+	    X86Matrix::<x86::X86u8x16Long0x11b>::new(9,9,true);
 	xform.fill(&identity[..]);
 
 	// 17 is coprime to 9
 	let mut input =
-	    X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,cols,false);
+	    X86Matrix::<x86::X86u8x16Long0x11b>::new(9,cols,false);
 
 	// create a vector with elements 1..255 repeating
 	let src : Vec<u8> = (1u8..=255).collect();
@@ -138,7 +138,7 @@ fn ref_gf8_matrix_mul(cols : usize) {
 
 	// output layout does matter for final assert!()
 	let mut output =
-	    X86SimpleMatrix::<x86::X86u8x16Long0x11b>::new(9,cols, false);
+	    X86Matrix::<x86::X86u8x16Long0x11b>::new(9,cols, false);
 
 	// 
 	// simd_warm_multiply(&mut transform, &mut input, &mut output);
