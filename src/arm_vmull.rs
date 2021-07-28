@@ -168,6 +168,15 @@ pub trait ArmSimd {
     // Need to think about boundary condition... should it be on
     // beyond, or on the end of the matrix? Just be consistent.
     
+    #[inline(always)]
+    fn zero_element() -> Self::E;
+    #[inline(always)]
+    fn add_elements(a : Self::E, b : Self::E) -> Self::E;
+    
+    // #[inline(always)]
+    fn cross_product(a : Self, b : Self) -> Self
+    where Self : Sized;
+
     unsafe fn non_wrapping_read(read_ptr :  *const Self::E,
 				beyond   :  *const Self::E
     ) -> Option<Self>    // None if read_ptr + SIMD_BYTES >= beyond
@@ -190,6 +199,8 @@ pub trait ArmSimd {
 	-> Self
 	where Self : Sized;
 			
+    fn sum_across_n(lo : &Self, hi : &Self, mask : &Self, off : usize)
+		    -> (Self::E);
     
 
 }
@@ -347,6 +358,20 @@ impl ArmSimd for VmullEngine8x8 {
     type V = uint8x8_t;
     type E = u8;
     const SIMD_BYTES : usize = 8;
+
+    #[inline(always)]
+    fn zero_element() -> Self::E { 0 }
+    #[inline(always)]
+    fn add_elements(a : Self::E, b : Self::E) -> Self::E { (a ^ b).into() }
+    
+    // #[inline(always)]
+    fn cross_product(a : Self, b : Self) -> Self {
+	unsafe {
+	    simd_mull_reduce_poly8x8(&vreinterpret_p8_u8(a.vec),
+				     &vreinterpret_p8_u8(b.vec)).into()
+	}
+    }
+
 
     // caller is responsible for tracking read_ptr
 
@@ -646,7 +671,66 @@ impl ArmSimd for VmullEngine8x8 {
 	
     }
 			
-		 
+    // Sum across N
+    //
+    // There are various ways to do this...
+    //
+    // Given a pair of registers, if the area being extracted
+    // straddles the two, things are a bit tricky using only rotating
+    // masks.
+    //
+    // We have m0, m1
+    //
+    // m0 is easy enough:
+    //
+    // have a mask with n bytes set to extract from the start of m0.
+    //
+    // apply the mask to pull out the bytes of interest, then sum them
+    // (optionally) apply the reverse mask to blank low bytes)
+    // shift the mask to the right (or rotate, if low bytes were blanked)
+    //
+    // When the mask rotates beyond the end, it will have some bytes
+    // at the start and some bytes at the end. We can save the initial
+    // mask and apply it to the wrapping mask so that only the low
+    // bytes will be selected.
+    //
+    // eg, n = 7
+    //
+    // initial mask  1111_1110 0000_0000   select bytes 0..6 of m0
+    // after ror 7:  0000_0001 1111_1100
+    // after ror 14: 1111_1000 0000_0011
+    //
+    // after advancing beyond m0, we will read a new m2, and rotate
+    // the mask by 8 (swap big, small), giving:
+    //
+    //                   m0        m1        m2 ...
+    // initial mask  1111_1110 0000_0000            select bytes 0..6 of m0
+    // after ror 7:  0000_0001 1111_1100            select across m0, m1, advance
+    // after ror 14:           0000_0011 1111_1000  select across m1, m2, advance
+
+    // The same mask can be used repeatedly.
+
+    // IIRC, on armv7, we can't use a 16-wide register as input to
+    // vtbl, but we can use an 8-wide register to look up from two
+    // 8-wide registers.
+
+    // With all that said, to start with, just use the existing
+    // extract_from_offset routine and use a non-rotating mask to
+    // extract the first n elements from the returned 8-wide vector.
+    // Worry about efficiency (not recalculating masks and rotates
+    // every time we call it) later.
+
+    fn sum_across_n(lo : &Self, hi : &Self, mask : &Self, off : usize)
+		    -> (Self::E) {
+
+	unsafe {
+	    Self::xor_across(
+		vand_u8(
+		    Self::extract_from_offset(&lo, &hi, off).vec, mask.vec
+		).into()
+	    )
+	}
+    }
 }
 
 
@@ -1153,8 +1237,6 @@ mod tests {
 				&mut ra);
 		assert_eq!(mod_index, index % size);
 
-		
-		
 		let v = VmullEngine8x8::read_simd(addr);
 
 		assert_eq!(format!("{:x?}", got.vec),
