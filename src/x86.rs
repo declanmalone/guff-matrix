@@ -512,7 +512,7 @@ impl Simd for X86u8x16Long0x11b {
 	    deficit = *array_index - array_size;
 	}
 	// eprintln!("Deficit is {}", deficit);
-	
+
 	let old_offset = *ra_size;
 
 	// some bools to make logic clearer

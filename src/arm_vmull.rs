@@ -292,12 +292,6 @@ impl Simd for VmullEngine8x8 {
 	}
     }
 
-    // the read_next routine in the x86 module is really terrible. The
-    // code below isn't too bad, but I think I should be passing in a
-    // "required" field, which will be 8 - the current the read-ahead
-    // buffer size. In any event, I'll need to think a bit about the
-    // cleanest way to handle it...
-
     // caller passes in current state variables and we pass back
     // updated values plus the newly-read simd value
     // #[inline(always)]
@@ -352,9 +346,43 @@ impl Simd for VmullEngine8x8 {
 	// apparently not...
 	// debug_assert_eq!(array_bool, avail_bool);
 
-	
-	
-	if *array_index >= size {
+	// restructure if/then to put most common case first, then
+	// return immediately without jumping to end
+	if *array_index < size {  // *array_index < size
+
+	    // eprintln!("*array_index < size");
+
+	    // start with the easiest (and most common) case:
+	    if *ra_size > 0 {
+		// combine ra + r0.
+		result = Self::extract_from_offset(&ra, &r0, 8 - *ra_size);
+	    } else {
+		// else all 8 bytes come from r0
+		result = r0;
+	    }
+	    new_ra = r0;
+
+	    // save updated variables
+	    //	    *ra_size = new_ra_size;
+	    *ra = new_ra;
+
+	    new_mod_index += 8;
+	    if new_mod_index >= size { new_mod_index -= size }
+	    *mod_index = new_mod_index;
+
+	    // eprintln!("final ra_size: {}", *ra_size);
+	    // eprintln!("final ra: {:x?}", (*ra).vec);
+	    // eprintln!("result: {:x?}", result.vec);
+	    
+	    if *array_index >= size {
+		// not an error
+		// eprintln!("Fixing up array index {} to zero", *array_index);
+		*array_index = 0;
+	    }
+
+	    return result;
+
+	} else 	{ // *array_index >= size {
 
 	    // eprintln!("*array_index >= size");
 	    
@@ -452,19 +480,6 @@ impl Simd for VmullEngine8x8 {
 		}
 	    }
 	    
-	} else {  // array_index < size
-
-	    // eprintln!("*array_index < size");
-
-	    // finish up with the easiest case:
-	    if *ra_size > 0 {
-		// combine ra + r0.
-		result = Self::extract_from_offset(&ra, &r0, 8 - *ra_size);
-	    } else {
-		// else all 8 bytes come from r0
-		result = r0;
-	    }
-	    new_ra = r0;
 	}
 
 	// save updated variables
