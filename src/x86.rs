@@ -82,7 +82,7 @@ use std::arch::x86_64::*;
 
 
 /// 16-way SIMD multiplication of elements in GF(2<sup>8</sup>) with poly 0x11b
-// #[inline(always)]
+#[inline(always)]
 pub unsafe fn vmul_p8x16(mut a : __m128i, b : __m128i, poly : u8) -> __m128i {
 
     let     zero = _mm_setzero_si128();
@@ -151,7 +151,7 @@ pub unsafe fn vmul_p8_buffer(dest : &mut [u8], av : &[u8], bv : &[u8], poly : u8
 	let a : __m128i;
 	let b : __m128i;
 	let res  : __m128i;
-	
+
 	// read in a, b from memory
 	a = _mm_lddqu_si128(av); // _mm_load_si128(av); // must be aligned
 	b = _mm_lddqu_si128(bv); // b = *bv also crashes
@@ -378,7 +378,26 @@ impl Simd for X86u8x16Long0x11b {
 	    X86u8x16Long0x11b { vec :_mm_setzero_si128() }
 	}
     }
-    
+
+    unsafe fn from_ptr(ptr: *const Self::E) -> Self {
+	X86u8x16Long0x11b {
+	    vec : _mm_lddqu_si128(ptr as *const std::arch::x86_64::__m128i)
+	}
+    }
+    /// Multiply two slices, putting result in another slice.  All
+    /// slices must be the same length and be a multiple of SIMD
+    /// width.
+    fn cross_product_slices(dest: &mut [u8],
+			    av : &[u8], bv : &[u8]) {
+	assert_eq!(dest.len(), av.len());
+	assert_eq!(dest.len(), bv.len());
+	//
+	unsafe {
+	    vmul_p8_buffer(&mut dest[..], &av[..], &bv[..], 0x1b);
+	}
+    }
+
+
     // #[inline(always)]
     fn cross_product(a : Self, b : Self) -> Self {
 	unsafe {

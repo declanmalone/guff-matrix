@@ -3,8 +3,8 @@
 use guff::{GaloisField, new_gf8, F8 };
 use guff_matrix::*;
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-use guff_matrix::x86::*;
+// #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+// use guff_matrix::x86::*;
 
 // despite docs, should have no main() here.
 // #![allow(unused)]
@@ -12,7 +12,6 @@ use guff_matrix::x86::*;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use criterion::BenchmarkId;
-
 
 fn ref_gf8_vec(size : usize) {
     let av = vec![0x53u8; size];
@@ -23,12 +22,16 @@ fn ref_gf8_vec(size : usize) {
     f.vec_cross_product(&mut rv[..], &av[..], &bv[..])
 }
     
-fn x86_gf8_vec(size : usize) {
+// #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+// use guff_matrix::x86::*;
+fn simd_gf8_vec(size : usize) {
     let av = vec![0x53u8; size];
     let bv = vec![0xcau8; size];
     let mut rv = vec![0x00u8; size];
 
-    unsafe { vmul_p8_buffer(&mut rv[..], &av[..], &bv[..], 0x1b); }
+    NativeSimd::cross_product_slices(&mut rv[..], &av[..], &bv[..]);
+
+    // unsafe { vmul_p8_buffer(&mut rv[..], &av[..], &bv[..], 0x1b); }
 }
 
 // not sure if I can get accurate timings for this
@@ -46,8 +49,8 @@ fn bench_ref_gf8_vec(c: &mut Criterion) {
     c.bench_function("ref gf8", |b| b.iter(|| ref_gf8_vec(32768)));
 }
 
-fn bench_x86_gf8_vec(c: &mut Criterion) {
-    c.bench_function("vec gf8", |b| b.iter(|| x86_gf8_vec(32768)));
+fn bench_simd_gf8_vec(c: &mut Criterion) {
+    c.bench_function("vec gf8", |b| b.iter(|| simd_gf8_vec(32768)));
 }
 
 // Test matrix multiplication
@@ -55,7 +58,7 @@ fn bench_x86_gf8_vec(c: &mut Criterion) {
 // Non-SIMD version (use same Simd Matrix types)
 
 // Will model on simd_identity_k9_multiply_colwise() test from lib.rs
-fn simd_x86_gf8_matrix_mul(cols : usize) {
+fn simd_gf8_matrix_mul(cols : usize) {
     unsafe {
 	let identity = [
 	    1,0,0, 0,0,0, 0,0,0,
@@ -94,14 +97,14 @@ fn simd_x86_gf8_matrix_mul(cols : usize) {
     }
 }
 
-fn bench_simd_x86_gf8_matrix_mul_17(c: &mut Criterion) {
+fn bench_simd_gf8_matrix_mul_17(c: &mut Criterion) {
     c.bench_function("simd gf8 matrix 9x17",
-		     |b| b.iter(|| simd_x86_gf8_matrix_mul(17)));
+		     |b| b.iter(|| simd_gf8_matrix_mul(17)));
 }
 
-fn bench_simd_x86_gf8_matrix_mul_16384(c: &mut Criterion) {
+fn bench_simd_gf8_matrix_mul_16384(c: &mut Criterion) {
     c.bench_function("simd gf8 matrix 9x16384",
-		     |b| b.iter(|| simd_x86_gf8_matrix_mul(16384)));
+		     |b| b.iter(|| simd_gf8_matrix_mul(16384)));
 }
 
 fn ref_gf8_matrix_mul(cols : usize) {
@@ -174,11 +177,11 @@ criterion_group!(benches,
 		 // 0.1.3
 		 // bench_alloc_only,
 		 bench_ref_gf8_vec,
-		 bench_x86_gf8_vec,
+		 bench_simd_gf8_vec,
 		 // 0.1.5 (bench before release)
-		 bench_simd_x86_gf8_matrix_mul_17,
+		 bench_simd_gf8_matrix_mul_17,
 		 bench_ref_gf8_matrix_mul_17,
-		 bench_simd_x86_gf8_matrix_mul_16384,
+		 bench_simd_gf8_matrix_mul_16384,
 		 bench_ref_gf8_matrix_mul_16384,
 );
 criterion_main!(benches);

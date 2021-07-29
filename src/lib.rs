@@ -149,17 +149,26 @@ pub mod simulator;
 // arch-dependent Matrix type:
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub type Matrix = x86::X86Matrix<x86::X86u8x16Long0x11b>;
+pub mod types {
+    pub type NativeSimd = crate::x86::X86u8x16Long0x11b;
+    pub type Matrix = crate::x86::X86Matrix<NativeSimd>;
+}
 
-#[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), feature = "arm_vmull"))]
-pub type Matrix = arm_vmull::ArmMatrix::<arm_vmull::VmullEngine8x8>;
+#[cfg(all(any(target_arch = "aarch64", target_arch = "arm"),
+	  feature = "arm_vmull"))]
+pub mod types {
+    pub type NativeSimd = crate::arm_vmull::VmullEngine8x8;
+    pub type Matrix = crate::arm_vmull::ArmMatrix::<NativeSimd>;
+}
+
+pub use types::*;
 
 // (actually, copy/paste worked with only type changes, so I can work
 // on making a more generic matrix)
 
 /// GCD and LCM functions
 pub mod numbers;
-use numbers::*;
+pub use numbers::*;
 
 /// SIMD support, based on `simulator` module
 ///
@@ -191,8 +200,15 @@ pub trait Simd {
 			ra : &mut Self)
 	-> Self
     where Self : Sized;
-    
 
+    /// load from memory (useful for testing, benchmarking)
+    unsafe fn from_ptr(ptr: *const Self::E) -> Self
+	where Self : Sized;
+
+    /// Cross product of two slices; useful for testing, benchmarking
+    /// Uses fixed poly at the moment.
+    fn cross_product_slices(dest: &mut [Self::E],
+			    av : &[Self::E], bv : &[Self::E]);
 }
 
 // For the SimdMatrix trait, I'm not going to distinguish between

@@ -10,209 +10,6 @@ use std::mem::transmute;
 
 use crate::*;
 
-// Update 2021/07/21
-//
-// I've just finished getting read_next() working after my third or
-// fourth rewrite.
-//
-// My goal is to unify my approach to both x86 and Arm platforms. One
-// part of that will be to rework read_next() and all the supporting
-// functions so that the functionality for read_next is generic across
-// both/all platforms ("all", if you count different vector
-// multiplication algorithms as counting as a different platform).
-//
-// Before then, though, I need to round out the rest of the
-// functionality needed to implement matrix multiply. That should be
-// fairly easy given the mask routines I've already written.
-
-// Old notes (mainly still valid, although I'm not using the
-// wrapping_read/non_wrapping_read or Option<Simd> in the rewrite of
-// read_next)
-//
-// Quick notes on approaching this ...
-//
-// I'm going to shift all simd-related logic out of the matrix
-// implementation in x86, and will follow suit here. It will only have
-// stuff relating to storage, and so can be generic.
-//
-// I want to avoid code duplication among the two or three Arm
-// implementations, so I might be able to split the Simd trait up into
-// separate subtraits and put the stuff that's common to them into
-// one, with stuff that's different (like the SIMD multiply routine)
-// into another.
-//
-// I'm leaning towards doing more of the work in the matrix multiply.
-// The matrix implementation will no longer track readahead, so the
-// Simd objects will have to be able to provide support for
-// translating between high-ish level concepts that the matrix
-// multiply routine will use (like combining a new SIMD worth of data
-// with the old readahead) and how they're actually implemented in the
-// hardware (eg, memory reads, using stored or calculated masks, and
-// combination of shifts/rotates/extracts/whatever)
-//
-// Comparing x86 to Arm, neither has variable shifts or
-// rotates. They're all done by constant amounts. On x86, the best way
-// to handle most of the work is by using pshufb to emulate shifts.
-//
-// On the Arm side, it's maybe a bit easier to emulate rotate:
-//
-// Start with an initial rotate mask of 0..15 (or 0..7 for 64-bit
-// vectors)
-//
-// doing a vtbl using the mask on the data to be rotated initially
-// gives the same data back.
-//
-// Adding 1 to each lane and anding with 15 (or 7) ends up with all
-// the values 0..15 rotated by 1.
-//
-// Rotates are handy for dealing with masks, too. If we have a product
-// stream and we want to take k values out of it each time (or some
-// other constant, if k > simd width), then we can set up a starting
-// mask with k zeros and simd - k ones (0xff). We can use that ANDed
-// with the data to only get the values we want. Then we can rotate
-// the mask by k (or the other constant) to get the next values.
-//
-// Speaking of 64-bit vectors, this routine here uses them because
-// there isn't a 128-wide table lookup on armv7 NEON.
-//
-// Anyway, I might implement another version of this for armv8, which
-// has the required instructions, I think.
-//
-// The two architectures (x86 and Arm) are sufficiently different that
-// it might make sense to use rotate-based masking extensively on the
-// Arm side, and shift-based operations on x86. This means that it
-// might be a bit difficult to have a "generic" interface between the
-// matrix multiply and Simd code. However, as a temporary measure, I
-// can implement *both* ways of doing the same thing in the matrix
-// code, but only code the implementations that make sense in the
-// target Simd architecture, with the other calls becoming no-ops.
-//
-
-// Since there's a fair bit of refactoring needed to get Arm and x86
-// working harmoniously together (in terms of traits and
-// implementations), not to mention new matrix code and all the
-// boilerplate needed to implement the existing trait setup, I'll take
-// a different approach. I'll work from the bottom up, implementing
-// rotates (and maybe shifts) and general wrap-around reading (as
-// opposed to being tied to a matrix), test them, and then write a
-// separate matrix multiply routine (and matrix-handling code, too,
-// probably).
-//
-// Then, once I have this Arm-specific implementation, I can start
-// looking at reworking the original Simd/Matrix/Multiply combination
-// to follow the Arm version.
-//
-// Fortunately, the current version of the code still compiles on Arm,
-// although it doesn't do anything useful since there's no Matrix
-// implementation. The benchmarks don't work, though, but that's not a
-// problem right now.
-// 
-// I'll be focusing on the vmull/tbl version (this file) first among
-// the various Arm implementations since it works on all my (non-Pi)
-// boards and it's got the best performance.
-
-pub trait ArmSimd {
-
-    type E : std::fmt::Display;	// element type (u8)
-    type V;			// main vector storage type
-    const SIMD_BYTES : usize;	// simd width in bytes
-
-    // will have extra types here describing masks and such that will
-    // be needed by the matrix multiply routine to track state
-
-    // required fns will be named after the operations as the matrix
-    // multiply fn sees the task at hand, eg:
-
-    //      unsafe fn non_wrapping_read(ptr : *Self::E) -> Self;
-
-    // depending on the level of abstraction, I might have a
-    // wrapping_read() fn for reading past end of buffer, or I might
-    // break it down into smaller parts like read_remainder() or
-    // partial_read() and combine_remainder_and_new_stream()... or
-    // something like that. I could express it in terms of updates to
-    // readahead.
-
-    // One thing that I should be testing fairly early on: the simd
-    // multiply.
-    //
-    // If I implement my matrices like I did in the simulator (ie,
-    // implementing Iterator<SimdType>), then I can pretty quickly
-    // code up a matrix multiply routine. Although all the iterator
-    // state will still be in the matrix type.
-
-    // Also, for clarity, I could also wrap some of this stuff using
-    // Option. For example, if I pass in the array bounds to
-    // non_wrapping_read(), then it could return Option<Self> which
-    // could be None to indicate that the read would wrap. Again,
-    // though, my aim is to move the logic into the matrix multiply
-    // routine, not hide it from it... still, that approach does have
-    // its merits, even if it's only for prototyping.
-
-    // In a similar vein, we can encapsulate reader state a lot more
-    // cleanly if we give it its own struct. Again, using Option, we
-    // can have add_partial (for consuming bytes at the end of the
-    // matrix) and add_full (adding a full simd read), which will
-    // return Some(Simd) if there are enough bytes in it, otherwise it
-    // will return None. It's not much of a bother to "inline" the
-    // logic into the matrix multiply later, or maybe we can even keep
-    // it in the final program (I dislike having to unwrap(), though,
-    // so I could rewrite it as add_partial_expecting_none() and
-    // add_partial_expecting_some() to avoid duplicate caller/callee
-    // checks, and use debug_assert!() to enforce the calling logic)
-
-    // Yes... actually separate structs are a good thing. It might
-    // mean copying a bit more data (if the compiler can't figure out
-    // that some struct members are unchanged, which I don't think it
-    // can), but it's a much better way to code and test...
-
-    // Anyway, let's go with the idea of Option wrapping, anyway
-
-    // Need to think about boundary condition... should it be on
-    // beyond, or on the end of the matrix? Just be consistent.
-    
-    #[inline(always)]
-    fn zero_element() -> Self::E;
-    #[inline(always)]
-    fn add_elements(a : Self::E, b : Self::E) -> Self::E;
-    
-    // #[inline(always)]
-    fn cross_product(a : Self, b : Self) -> Self
-    where Self : Sized;
-
-    /*
-    unsafe fn non_wrapping_read(read_ptr :  *const Self::E,
-				beyond   :  *const Self::E
-    ) -> Option<Self>    // None if read_ptr + SIMD_BYTES >= beyond
-	where Self : Sized;
-
-    // And a version that wraps around matrix boundary
-    unsafe fn wrapping_read(read_ptr : *const Self::E,
-			    beyond   : *const Self::E,
-			    restart  : *const Self::E
-    ) -> (Self, Option<Self>)
-    where Self : Sized;  // if non-wrapping fails
-     */
-    // 
-    unsafe fn read_next(mod_index : &mut usize,
-			array_index : &mut usize,
-			array     : &[Self::E],
-			size      : usize,
-			ra_size : &mut usize,
-			ra : &mut Self)
-	-> Self
-	where Self : Sized;
-			
-    fn sum_across_n(lo : &Self, hi : &Self, mask : &Self, off : usize)
-		    -> Self::E;
-    
-
-}
-
-// Q: why did I stop using Iterator to implement read_next?
-//
-// I think that the reason is that I saw that it wasn't inlining
-// properly, even with the inline directive. 
-
 #[derive(Debug,Copy,Clone)]
 pub struct VmullEngine8x8 {
     // using uint8x8_t rather than poly8x8_t since it involves less
@@ -289,35 +86,6 @@ impl VmullEngine8x8 {
 	vtbl2_u8(tbl2, mask).into()	
     }
 
-    // versions of the above that also returns remaining bytes as new
-    // readahead
-    //
-    // args:
-    //
-    // partial (ie, old read-ahead [+read from matrix end]):
-    //
-    // +--------+------------+
-    // |        |   partial  | (in high bytes)
-    // +--------+------------+
-    // 
-    // new bytes: either full simd, or partial (read from end of matrix)
-    //
-    // These come from memory reads, so are aligned to low bytes
-    //
-    // +-----------------+---+    +---------------------+
-    // | new_from_end    |   |    | new_full_simd       |
-    // +-----------------+---+	  +---------------------+
-    //
-    // Sample output
-    //
-    //     r0                       r1 (next readahead)
-    // +--------+------------+    +------------+--------+
-    // | partial| new     .. |    |            | .. new |
-    // +--------+------------+    +------------+--------+
-    //
-    
-	
-    
     unsafe fn splat(elem : u8) -> Self {
 	vmov_n_u8(elem).into()
     }
@@ -468,7 +236,6 @@ impl Simd for VmullEngine8x8 {
     fn zero_vector() -> Self {
 	unsafe { vmov_n_u8(0).into() }
     }
-    
 
     // #[inline(always)]
     fn cross_product(a : Self, b : Self) -> Self {
@@ -478,15 +245,58 @@ impl Simd for VmullEngine8x8 {
 	}
     }
 
+    /// load from memory (useful for testing, benchmarking)
+    unsafe fn from_ptr(ptr: *const Self::E) -> Self {
+	Self::read_simd(ptr)
+    }
 
-    // caller is responsible for tracking read_ptr
+    /// Cross product of two slices; useful for testing, benchmarking
+    /// Uses fixed poly at the moment.
+    fn cross_product_slices(dest: &mut [Self::E],
+			    av : &[Self::E], bv : &[Self::E]) {
+
+	debug_assert_eq!(av.len(), bv.len());
+	debug_assert_eq!(bv.len(), dest.len());
+
+	let bytes = av.len();
+	if bytes & 7 != 0 {
+	    panic!("Buffer length not a multiple of 8");
+	}
+	let mut times = bytes >> 3;
+
+	// convert dest, av, bv to pointers
+	let mut dest = dest.as_mut_ptr();
+	let mut av = av.as_ptr();
+	let mut bv = bv.as_ptr();
+
+	while times > 0 {
+	    times -= 1;
+	    let a : Self;
+	    let b : Self;
+	    let res  : Self;
+
+	    // read in a, b from memory
+	    unsafe { 
+		a = Self::read_simd(av); // 
+		b = Self::read_simd(bv); // b = *bv also crashes
+		av = av.offset(1);	// offset for vec type, not bytes!
+		bv = bv.offset(1);
+	    }
+
+	    res =  Self::cross_product(a, b);
+
+	    unsafe {
+		vst1_u8(dest, res.vec);
+		dest = dest.offset(1);
+	    }
+	}
+    }
 
     // the read_next routine in the x86 module is really terrible. The
     // code below isn't too bad, but I think I should be passing in a
     // "required" field, which will be 8 - the current the read-ahead
     // buffer size. In any event, I'll need to think a bit about the
     // cleanest way to handle it...
-
 
     // caller passes in current state variables and we pass back
     // updated values plus the newly-read simd value
