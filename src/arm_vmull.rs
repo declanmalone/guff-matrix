@@ -300,7 +300,7 @@ impl Simd for VmullEngine8x8 {
 
     // caller passes in current state variables and we pass back
     // updated values plus the newly-read simd value
-    #[inline(always)]
+    // #[inline(always)]
     unsafe fn read_next(mod_index : &mut usize,
 			array_index : &mut usize,
 			array     : &[Self::E],
@@ -379,13 +379,13 @@ impl Simd for VmullEngine8x8 {
 
 		// eprintln!("*array_index >= size && available < 8");
 
-		let read_ptr = array.as_ptr().offset(0);
+		let read_ptr = array.as_ptr();
 		r1 = Self::read_simd(read_ptr as *const u8);
 		*array_index = 8;
 
 		// We had `available` from ra and r0, and we read
 		// 8, then returned 8, so we still have `available`
-	    
+
 		// eprintln!("Changing ra_size to available");
 		new_ra_size = available;
 
@@ -772,7 +772,7 @@ impl SimdMatrix<VmullEngine8x8> for ArmMatrix<VmullEngine8x8> {
 	&self.array[0..size]
     }
 
-    #[inline(always)]
+    // #[inline(always)]
     fn indexed_write(&mut self, index : usize, elem : u8) {
 	self.array[index] = elem;
     }
