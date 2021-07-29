@@ -46,11 +46,11 @@ fn bench_alloc_only(c: &mut Criterion) {
 }
 
 fn bench_ref_gf8_vec(c: &mut Criterion) {
-    c.bench_function("ref gf8", |b| b.iter(|| ref_gf8_vec(32768)));
+    c.bench_function("ref gf8 vec", |b| b.iter(|| ref_gf8_vec(32768)));
 }
 
 fn bench_simd_gf8_vec(c: &mut Criterion) {
-    c.bench_function("vec gf8", |b| b.iter(|| simd_gf8_vec(32768)));
+    c.bench_function("simd gf8 vec", |b| b.iter(|| simd_gf8_vec(32768)));
 }
 
 // Test matrix multiplication
@@ -179,10 +179,10 @@ criterion_group!(benches,
 		 bench_ref_gf8_vec,
 		 bench_simd_gf8_vec,
 		 // 0.1.5 (bench before release)
-		 bench_simd_gf8_matrix_mul_17,
 		 bench_ref_gf8_matrix_mul_17,
-		 bench_simd_gf8_matrix_mul_16384,
+		 bench_simd_gf8_matrix_mul_17,
 		 bench_ref_gf8_matrix_mul_16384,
+		 bench_simd_gf8_matrix_mul_16384,
 );
 criterion_main!(benches);
 
