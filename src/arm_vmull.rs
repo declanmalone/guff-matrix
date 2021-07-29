@@ -223,6 +223,7 @@ pub struct VmullEngine8x8 {
 // low-level intrinsics
 impl VmullEngine8x8 {
 
+    #[inline(always)]
     unsafe fn read_simd(ptr: *const u8) -> Self {
 	vld1_p8(ptr).into()
     }
@@ -489,6 +490,7 @@ impl Simd for VmullEngine8x8 {
 
     // caller passes in current state variables and we pass back
     // updated values plus the newly-read simd value
+    #[inline(always)]
     unsafe fn read_next(mod_index : &mut usize,
 			array_index : &mut usize,
 			array     : &[Self::E],
@@ -736,12 +738,11 @@ impl Simd for VmullEngine8x8 {
 	let masked = Self::mask_start_elements(extracted, n).into();
 	let result = Self::xor_across(masked);
 
-	eprintln!("Got lo: {:x?}, hi: {:x?}, n: {}, off: {}",
-		  lo.vec, hi.vec, n, off);
-
-	eprintln!("extracted: {:x?}", extracted.vec);
-	eprintln!("masked: {:x?}", masked.vec);
-	eprintln!("xor result: {:x}", result);
+	// eprintln!("Got lo: {:x?}, hi: {:x?}, n: {}, off: {}",
+	// 	  lo.vec, hi.vec, n, off);
+	// eprintln!("extracted: {:x?}", extracted.vec);
+	// eprintln!("masked: {:x?}", masked.vec);
+	// eprintln!("xor result: {:x}", result);
 
 	( result, m )
     }
