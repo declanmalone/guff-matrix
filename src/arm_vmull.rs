@@ -39,7 +39,14 @@ impl VmullEngine8x8 {
 	v = veor_u64(v, vshr_n_u64::<8>(v)); // eprintln!("after shift 1: {:x?}", v);
 	let ret = vget_lane_u8::<0>(vreinterpret_u8_u64(v));
 	// eprintln!("xor_across returning: {:x}", ret);
-	ret
+	return ret;
+
+	// There might be an alternative way, using re-casting
+	//
+	// If v is in a D reg (64 bits), we might be able to refer to
+	// its two 32-bit halves? Ah, no... no "across"-like
+	// intrinsics, it seems.
+	    
     }
 
     unsafe fn rotate_right(v : Self, amount : usize) -> Self {
@@ -86,6 +93,27 @@ impl VmullEngine8x8 {
 	vtbl2_u8(tbl2, mask).into()	
     }
 
+    // The most common path through read_next involves calling
+    // extract_from_offset(&ra,&r0, 8 - *ra_size). If we remember the
+    // mask and pass it in each time instead, we should see some
+    // performance improvement over calculating it from scratch each
+    // time. Obviously, if ra_size changes, the mask also needs to
+    // change.
+    unsafe fn extract_using_mask(lo: &Self, hi : &Self, mask : &Self)
+				  -> Self {
+	let tbl2 = uint8x8x2_t ( lo.vec, hi.vec );
+	// 3 vector instructions saved: load mask, splat off, add
+	vtbl2_u8(tbl2, mask).into()	
+    }
+
+    // create mask, called when starting off and *ra_size changes
+    unsafe fn extract_mask_from_offset(offset : usize) -> Self {
+	debug_assert!(offset < 8);
+	let mut mask = transmute( [0u8,1,2,3,4,5,6,7] ); // null rotate mask
+	let add_amount = vmov_n_u8(offset as u8);
+	vadd_u8(mask, add_amount).into()
+    }
+    
     unsafe fn splat(elem : u8) -> Self {
 	vmov_n_u8(elem).into()
     }

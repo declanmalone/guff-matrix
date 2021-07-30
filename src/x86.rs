@@ -364,6 +364,8 @@ unsafe fn test_alignr() {
 impl Simd for X86u8x16Long0x11b {
 
     type E = u8;
+    // type EE = u16;
+    // type SEE = i16;
     type V = __m128i;
     const SIMD_BYTES : usize = 16;
 
@@ -659,23 +661,6 @@ pub struct X86Matrix<S : Simd> {
 /// Concrete implementation of matrix for x86_64
 impl X86Matrix<X86u8x16Long0x11b> {
 
-    pub fn new(rows : usize, cols : usize, is_rowwise : bool) -> Self {
-	let size = rows * cols;
-	if size < 16 {
-	    panic!("This matrix can't handle rows * cols < 16 bytes");
-	}
-
-	// add an extra 15 guard bytes beyond size
-	let array = vec![0u8; size + 15];
-
-	// set up a dummy value as an alternative to PhantomData
-	let _zero = X86u8x16Long0x11b::zero_vector();
-	
-	X86Matrix::<X86u8x16Long0x11b> {
-	    rows, cols, is_rowwise, array, _zero
-	}
-    }
-
     pub fn fill(&mut self, data : &[u8]) {
 	let size = self.size();
 	if data.len() != size {
@@ -708,6 +693,23 @@ const SHUFFLE_MASK : [u8; 48] = [
 
 impl SimdMatrix<X86u8x16Long0x11b> for X86Matrix<X86u8x16Long0x11b> {
 
+    fn new(rows : usize, cols : usize, is_rowwise : bool) -> Self {
+	let size = rows * cols;
+	if size < 16 {
+	    panic!("This matrix can't handle rows * cols < 16 bytes");
+	}
+
+	// add an extra 15 guard bytes beyond size
+	let array = vec![0u8; size + 15];
+
+	// set up a dummy value as an alternative to PhantomData
+	let _zero = X86u8x16Long0x11b::zero_vector();
+	
+	X86Matrix::<X86u8x16Long0x11b> {
+	    rows, cols, is_rowwise, array, _zero
+	}
+    }
+
     #[inline(always)]
     fn rows(&self) -> usize { self.rows }
 
@@ -720,6 +722,11 @@ impl SimdMatrix<X86u8x16Long0x11b> for X86Matrix<X86u8x16Long0x11b> {
     fn as_slice(&self) -> &[u8] {
 	let size = self.size();
 	&self.array[0..size]
+    }
+
+    #[inline(always)]
+    fn indexed_read(&self, index : usize) -> u8 {
+	self.array[index]
     }
 
     #[inline(always)]

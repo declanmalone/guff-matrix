@@ -72,6 +72,9 @@
 //
 
 use guff::*;
+use num::{Zero, One};
+use core::mem::size_of;
+
 
 // Only one x86 implementation, included automatically
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -79,7 +82,7 @@ pub mod x86;
 
 // I want to emit assembly for these
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub fn _monomorph() {
+fn _monomorph() {
 
     use crate::x86::*;
 
@@ -87,7 +90,8 @@ pub fn _monomorph() {
     fn inner_fn<S : Simd + Copy>(
 	xform  : &mut impl SimdMatrix<S>,
 	input  : &mut impl SimdMatrix<S>,
-	output : &mut impl SimdMatrix<S>) {
+	output : &mut impl SimdMatrix<S>)
+    where S::E : Copy + Zero + One {
 	unsafe {
 	    simd_warm_multiply(xform, input, output);
 	}
@@ -163,8 +167,8 @@ pub mod types {
 
 pub use types::*;
 
-// (actually, copy/paste worked with only type changes, so I can work
-// on making a more generic matrix)
+// (actually, copy/paste worked with only type/simd_bytes changes, so
+// I can work on making a more generic matrix later)
 
 /// GCD and LCM functions
 pub mod numbers;
@@ -175,7 +179,10 @@ pub use numbers::*;
 /// This trait will be in main module and will have to be implemented
 /// for each architecture
 pub trait Simd {
-    type E : std::fmt::Display;			// elemental type, eg u8
+    type E : std::fmt::Display;	// elemental type, eg u8
+    // type EE;			// for specifying fallback GaloisField
+    // type SEE;		// ditto
+
     type V;			// vector type, eg [u8; 8]
     const SIMD_BYTES : usize;
 
@@ -223,7 +230,8 @@ pub trait Simd {
 // that type.
 
 /// Trait for a matrix that supports Simd iteration
-pub trait SimdMatrix<S : Simd> {
+pub trait SimdMatrix<S : Simd>
+where Self : Sized, S::E : Copy + Zero + One {
     // const IS_ROWWISE : bool;
     // fn is_rowwise(&self) -> bool { Self::IS_ROWWISE }
 
@@ -251,9 +259,7 @@ pub trait SimdMatrix<S : Simd> {
     // Wrap-around diagonal write of (output) matrix
     // fn write_next(&mut self, val : S::E); // moved to matrix mul
 
-    
-
-    
+    fn indexed_read(&self, index : usize) -> S::E;
     fn indexed_write(&mut self, index : usize, elem : S::E);
     fn as_mut_slice(&mut self) -> &mut [S::E];
     fn as_slice(&self) -> &[S::E];
@@ -275,13 +281,131 @@ pub trait SimdMatrix<S : Simd> {
     }
     fn size(&self) -> usize { self.rows() * self.cols() }
 
+    // Other typical matrix stuff (all implemented as defaults here):
+    //
+    // * inversion
+    // * adjoining (helps with inversion/solving)
+    // * solver
+    // * row/column operations (add scaled row to another)
+    // * transposition
+    // * interleaved load/store
+    // * copy
+
+    fn new(rows : usize, cols : usize, is_rowwise : bool) -> Self;
+
+    fn adjoin_right(&self, other : &Self) -> Self
+    where  {
+	assert_eq!(self.rows(), other.rows());
+	assert_eq!(self.is_rowwise(), other.is_rowwise());
+
+	let mut this = Self::new(self.rows(), self.cols() + other.cols(),
+			     self.is_rowwise());
+	
+	if self.is_rowwise() {
+	    let left_cols = self.cols();
+	    let right_cols = other.cols();
+	    let out_cols = left_cols + right_cols;
+
+	    let mut left_iter = self.as_slice().chunks(left_cols);
+	    let mut right_iter = other.as_slice().chunks(right_cols);
+
+	    let out_iter = this.as_mut_slice().chunks_mut(out_cols);
+	    for output_row in out_iter {
+		let (left,right) = output_row.split_at_mut(left_cols);
+		left.copy_from_slice(left_iter.next().unwrap());
+		right.copy_from_slice(right_iter.next().unwrap());
+	    }
+	} else {
+	    let (left,right) = this.as_mut_slice().split_at_mut(self.size());
+	    left.copy_from_slice(self.as_slice());
+	    right.copy_from_slice(other.as_slice());
+	}
+	
+	this
+    }
+
+    fn identity(size : usize, is_rowwise : bool) -> Self {
+	let mut this = Self::new(size, size, is_rowwise);
+	let mut index = 0;
+	for _ in 0..size {
+	    this.indexed_write(index, S::E::one());
+	    index += size + 1;
+	}
+	this
+    }
+
+    // Inversion doesn't use SIMD for now. 
+
+    /// Gauss-Jordan inversion
+    fn invert(&self, field : &impl GaloisField) -> Option<Self>
+    where
+	S::E: PartialEq {
+
+	assert!(self.is_rowwise());
+	assert_eq!(self.rows(), self.cols());
+	// I have no (type-based) checking that the field passed in is
+	// actually suitable. A runtime check will have to do:
+	assert_eq!((field.order() >> 3) as usize, size_of::<S::E>());
+
+	// adjoin an identity matrix on the right
+	let mut mat = self.adjoin_right(&Self::identity(self.rows(), true));
+
+	let mut index = 0;	// index of diagonal element
+	let mut rowsize = mat.cols(); // distance from diagonal to end
+	for row in 0..mat.rows() {
+
+	    // If the matrix is invertible, there must be a non-zero
+	    // value somewhere in this column. If a zero occurs on the
+	    // diagonal, find a non-zero value below this row and swap
+	    // rows.
+	    if mat.indexed_read(index) == S::E::zero() {
+		let mut found_row = false;
+		let mut index_below = index + mat.cols();
+		for row_below in row + 1..mat.rows() {
+		    if mat.indexed_read(index_below) != S::E::zero() {
+			found_row = true;
+			break;
+		    }
+		    index_below += mat.cols();
+		}
+		// It should be pretty clear that if the caller tries
+		// to unwrap the inverse matrix and gets none, that
+		// it's not invertible. Yes?
+		if !found_row { return None }
+		// Now fight with the borrow checker (not really)
+		let (_,slice)   = mat.as_mut_slice().split_at_mut(index);
+		let (row1,row2) = slice.split_at_mut(index_below - index);
+		let row1 = &mut row1[..rowsize];
+		let row2 = &mut row2[..rowsize];
+		row1.swap_with_slice(row2);
+	    }
+
+	    // Normalise the diagonal so that it becomes 1. I probably
+	    // need an in-place scale in main guff crate. Do I have
+	    // one already?
+
+
+	    // Scan up and down the column adding a multiple of the
+	    // current row so that the target row has zero in this column
+
+	    // as we move down the diagonal, each row has fewer
+	    // columns to process
+	    rowsize -= 1;
+	}
+
+	// read off the adjoined data, which now has the inverse
+	// matrix
+
+	None
+    }
 }
 
 
 pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
     xform  : &mut impl SimdMatrix<S>,
     input  : &mut impl SimdMatrix<S>,
-    output : &mut impl SimdMatrix<S>) {
+    output : &mut impl SimdMatrix<S>)
+where S::E : Copy + Zero + One {
 
     // dimension tests
     let c = input.cols();
@@ -468,8 +592,8 @@ pub fn reference_matrix_multiply<S : Simd + Copy, G>(
     output : &mut impl SimdMatrix<S>,
     field  : &G)
 where G : GaloisField,
-<S as Simd>::E: From<<G as GaloisField>::E> + Copy,
-<G as GaloisField>::E: From<<S as Simd>::E> + Copy
+<S as Simd>::E: From<<G as GaloisField>::E> + Copy + Zero + One,
+<G as GaloisField>::E: From<<S as Simd>::E> + Copy + Zero + One
 {
 
     // dimension tests
@@ -519,6 +643,18 @@ where G : GaloisField,
 // If the appropriate arch is available and (if needed) one of the
 // arch-specific features are enabled, this wrapper layer will call
 // them. If they're not, we'll get pure-Rust fallback implementations.
+
+
+// Other typical matrix stuff:
+//
+// * inversion
+// * adjoining (helps with inversion/solving)
+// * solver
+// * row/column operations (add scaled row to another)
+// * transposition
+// * interleaved load/store
+// * copy
+
 
 
 
