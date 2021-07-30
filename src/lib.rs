@@ -378,6 +378,7 @@ where Self : Sized, S::E : Copy + Zero + One {
 		let row1 = &mut row1[..rowsize];
 		let row2 = &mut row2[..rowsize];
 		row1.swap_with_slice(row2);
+		// (since all mutable borrows are dropped here)
 	    }
 
 	    // Normalise the diagonal so that it becomes 1. I probably
@@ -385,8 +386,24 @@ where Self : Sized, S::E : Copy + Zero + One {
 	    // one already?
 
 
-	    // Scan up and down the column adding a multiple of the
-	    // current row so that the target row has zero in this column
+	    // 困った！ .. need a type-based solution after all... I
+	    // can't get inv from an arbitrary field and have it be
+	    // the same as S::E... So, make Simd generic on both the
+	    // architecture-specific stuff and the underlying element
+	    // type, supplied by a concrete type from guff?
+	    // Hmm... more likely the Matrix implementation will be
+	    // keyed to both, although later on Simd will also depend
+	    // on a reference implementation of GF(2) due to needing
+	    // to build poly-specific lookup tables.
+	    let inverse = field.inv(mat.indexed_read(index));
+
+	    
+	    // Scan up and down from the diagonal adding a multiple of
+	    // the current row so that the target row has zero in this
+	    // column
+	    for other_row in 0..mat.rows() {
+		if other_row == row { continue }
+	    }
 
 	    // as we move down the diagonal, each row has fewer
 	    // columns to process
