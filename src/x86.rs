@@ -698,7 +698,7 @@ impl SimdMatrix<X86u8x16Long0x11b,F8> for X86Matrix<X86u8x16Long0x11b> {
     fn new(rows : usize, cols : usize, is_rowwise : bool) -> Self {
 	let size = rows * cols;
 	if size < 16 {
-	    panic!("This matrix can't handle rows * cols < 16 bytes");
+	 //   panic!("This matrix can't handle rows * cols < 16 bytes");
 	}
 
 	// add an extra 15 guard bytes beyond size

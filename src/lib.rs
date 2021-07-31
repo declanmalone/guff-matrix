@@ -356,13 +356,19 @@ where Self : Sized, S::E : Copy + Zero + One,
 	// adjoin an identity matrix on the right
 	let mut mat = self.adjoin_right(&Self::identity(self.rows(), true));
 
+	eprintln!("adjoined matrix before inverse: {:x?}",
+		  mat.as_slice());
+
 	// store these in variables to satisfy the borrow checker
 	let rows = mat.rows();
 	let cols = mat.cols();
 
 	let mut index = 0;	// index of diagonal element
 	let mut rowsize = cols; // distance from diagonal to end
-	for row in 0..mat.rows() {
+	for diag in 0..mat.rows() {
+
+	    eprintln!("\ndiagonal is {}", diag);
+	    eprintln!("index is {}", index);
 
 	    // If the matrix is invertible, there must be a non-zero
 	    // value somewhere in this column. If a zero occurs on the
@@ -371,7 +377,7 @@ where Self : Sized, S::E : Copy + Zero + One,
 	    if mat.indexed_read(index) == S::E::zero() {
 		let mut found_row = false;
 		let mut index_below = index + cols;
-		for _row_below in row + 1..rows {
+		for _row_below in diag + 1..rows {
 		    if mat.indexed_read(index_below) != S::E::zero() {
 			found_row = true;
 			break;
@@ -406,10 +412,19 @@ where Self : Sized, S::E : Copy + Zero + One,
 	    // on a reference implementation of GF(2) due to needing
 	    // to build poly-specific lookup tables.
 	    let inverse = field.inv(mat.indexed_read(index));
+
+	    eprintln!("inverse of element {:x?} is {:x?}",
+		      mat.indexed_read(index), inverse);
+
 	    mat.indexed_write(index, S::E::one()); // element/element
 	    field.vec_constant_scale_in_place(
 		&mut mat.as_mut_slice()[index + 1 .. index + rowsize],
 		inverse);
+	    eprintln!("matrix after normalising row {}: {:x?}",
+		      diag,
+		      // &mat.as_slice()[diag * cols .. diag * cols + cols]
+		      &mat.as_slice()[ .. ]
+	    );
 	    
 	    // Scan up and down from the diagonal adding a multiple of
 	    // the current row so that the target row has zero in this
@@ -418,37 +433,62 @@ where Self : Sized, S::E : Copy + Zero + One,
 	    // We can't have both mutable and immutable borrows,
 	    // though, so we have to clone the source row.
 
-	    let mut source_row : Vec<_> = Vec::with_capacity(rowsize - 1);
-	    source_row.copy_from_slice(
-		&mat.as_slice()[index + 1 .. rowsize]);
-	    let mut mut_rows = mat.as_mut_slice().chunks_mut(cols);
+	    // eprintln!("index is {}, rowsize is {}, diag is {}",
+	    // 	      index, rowsize, diag);
+
+	    let mut source_row = vec![S::E::zero(); rowsize];
+	    eprintln!("source_row has length {}", source_row.len());
+	    let source_slice = &mat.as_slice()[index  .. index + rowsize];
+	    eprintln!("source_slice has length {}", source_slice.len());
+
+	    &source_row[..].copy_from_slice(source_slice);
+
+	    eprintln!("source_row is {:x?}", source_row);
 	    
+	    let mut mut_rows = mat.as_mut_slice().chunks_mut(cols);
+
 	    for other_row in 0..rows {
 		// always consume this row
 		let this_row =  mut_rows.next().unwrap();
-		if other_row == row { continue }
+		if other_row == diag { continue }
 
 		// nothing to do if element already zero
-		let elem : G::E = this_row[row];
-		if elem == S::E::zero().into() { continue };
+		let elem : G::E = this_row[diag];
+		eprintln!("Row {} has element {:x?}", other_row, elem);
+		// if elem == S::E::zero().into() { continue };
 
 	    	// guff has a non-working "fused multiply-add"
 		// function right now, so emulate it
-		this_row[row] = S::E::zero();	   // save a multiply/add
+		// this_row[diag] = S::E::zero();	   // save a multiply/add
 
-		let this_row = &mut this_row[row+1..]; // skip 0s
+		let this_row = &mut this_row[diag..]; // skip 0s
+		eprintln!("this_row is {:x?}", this_row);
 		for col in 0 .. rowsize {
+		    eprintln!("Calculating {:x?} + {:x?} x {:x?}",
+			      this_row[col],
+			      elem,
+			      source_row[col], );
 		    this_row[col]
 			= field.add(this_row[col],
 				    field.mul(source_row[col], elem));
+		    eprintln!("= {:x?}", this_row[col]);
 		}
 	    }
+
+	    eprintln!("matrix after adding row {}: {:x?}",
+		      diag,
+		      // &mat.as_slice()[diag * cols .. diag * cols + cols]
+		      &mat.as_slice()[ .. ]
+	    );
 
 	    // as we move down the diagonal, each row has fewer
 	    // columns to process
 	    rowsize -= 1;
 	    index += cols + 1;
 	}
+
+	eprintln!("adjoined matrix after inverse: {:x?}",
+		  mat.as_slice());
 
 	// read off the adjoined data, which now has the inverse
 	// matrix
@@ -677,18 +717,24 @@ where G : GaloisField,
     let input_array  = input.as_slice();
     // let mut output_array = output.as_mut_slice();
 
+    // Be agnostic about layout
+    let right = if xform.is_rowwise() { 1 } else { n };
+    let down  = if input.is_rowwise() { c } else { 1 };
+
     for row in 0..n {
 	for col in 0..c {
-	    let xform_index  = xform.rowcol_to_index(row,0);
-	    let input_index  = input.rowcol_to_index(0,col);
+	    let mut xform_index  = xform.rowcol_to_index(row,0);
+	    let mut input_index  = input.rowcol_to_index(0,col);
 	    let output_index = output.rowcol_to_index(row,col);
 
 	    let mut dp = S::zero_element();
 	    for i in 0..k {
 		dp = S::add_elements(dp, field
-				     .mul(xform_array[xform_index + i].into(),
-					  input_array[input_index + i].into()
+				     .mul(xform_array[xform_index].into(),
+					  input_array[input_index].into()
 				     ).into());
+		xform_index += right;
+		input_index += down;
 	    }
 	    output.indexed_write(output_index,dp);
 	}
@@ -953,13 +999,9 @@ mod tests {
 		    transform.fill(&(1u8..).take(n*k).collect::<Vec<u8>>()[..]);
 		    input.fill(&(1u8..).take(k*cols).collect::<Vec<u8>>()[..]);
 
-		    let mut ref_output =
-			Matrix
-			::new(n,cols,true);
+		    let mut ref_output = Matrix::new(n,cols,true);
 
-		    let mut simd_output =
-			Matrix
-			::new(n,cols,true);
+		    let mut simd_output = Matrix::new(n,cols,true);
 
 		    // do multiply both ways
 		    simd_warm_multiply(&mut transform, &mut input,
@@ -1002,8 +1044,66 @@ mod tests {
 	let mut xmat = Matrix::new(8,8,true);
 	xmat.fill(xform.as_slice());
 
-	let out = xmat.invert(&new_gf8(0x11b,0x1b)).unwrap();
-	assert_eq!(out.as_slice(), xform.as_slice());
+	let mut out = xmat.invert(&new_gf8(0x11b,0x1b)).unwrap();
+
+	assert_eq!(format!("{:2x?}", out.as_slice()),
+		   format!("{:2x?}", inverse.as_slice()));
+
+
+	// test whether invert(invert(matrix)) = identity
+	let identity = Matrix::identity(8,true);
+
+	let mut ref_output = Matrix::new(8,8,true);
+	reference_matrix_multiply(&mut xmat,
+				  &mut out,
+				  &mut ref_output,
+				  &new_gf8(0x11b, 0x1b));
+
+	//	assert_eq!(format!("{:2x?}", ref_output.as_slice())		   ,
+	//	   format!("{:2x?}", identity.as_slice()));
+    }
+
+    #[test]
+    fn test_2x2_inverse() {
+
+	// calculate inverse by hand:
+	// for [ a, b, c, d ], inverse is:
+	//
+	//    1     |  d -b |
+	// -------  | -c  a |
+	// ad - bc
+
+	let f = new_gf8(0x11b, 0x1b);
+	let a = 1; let b = 2; let c = 3; let d = 4;
+
+	let xform = vec![ a, b, c, d ];
+
+	let det = f.inv(f.mul(a,d) ^ f.mul(b,c));
+
+	let inverse = vec![ f.mul(det, d), f.mul(det, b),
+			   f.mul(det, c), f.mul(det, a)];
+
+	let mut xmat = Matrix::new(2,2,true);
+	xmat.fill(xform.as_slice());
+
+	let mut out = xmat.invert(&f).unwrap();
+
+	assert_eq!(format!("{:2x?}", out.as_slice()),
+		   format!("{:2x?}", inverse.as_slice()));
+
+
+	// test whether invert(invert(matrix)) = identity
+	let identity = Matrix::identity(2,true);
+
+	let mut ref_output = Matrix::new(2,2,true);
+	reference_matrix_multiply(
+				  &mut xmat,
+	    &mut out,
+				  &mut ref_output,
+				  &new_gf8(0x11b, 0x1b));
+
+	assert_eq!(format!("{:2x?}", ref_output.as_slice())		   ,
+		   format!("{:2x?}", identity.as_slice()));
     }
 	
 }
