@@ -87,10 +87,10 @@ fn _monomorph() {
     use crate::x86::*;
 
     #[inline(never)]
-    fn inner_fn<S : Simd + Copy>(
-	xform  : &mut impl SimdMatrix<S>,
-	input  : &mut impl SimdMatrix<S>,
-	output : &mut impl SimdMatrix<S>)
+    fn inner_fn<S : Simd<E=u8> + Copy>(
+	xform  : &mut impl SimdMatrix<S,F8>,
+	input  : &mut impl SimdMatrix<S,F8>,
+	output : &mut impl SimdMatrix<S,F8>)
     where S::E : Copy + Zero + One {
 	unsafe {
 	    simd_warm_multiply(xform, input, output);
@@ -230,8 +230,10 @@ pub trait Simd {
 // that type.
 
 /// Trait for a matrix that supports Simd iteration
-pub trait SimdMatrix<S : Simd>
-where Self : Sized, S::E : Copy + Zero + One {
+pub trait SimdMatrix<S : Simd<E=G::E>, G : GaloisField>
+where Self : Sized, S::E : Copy + Zero + One,
+
+{
     // const IS_ROWWISE : bool;
     // fn is_rowwise(&self) -> bool { Self::IS_ROWWISE }
 
@@ -337,9 +339,12 @@ where Self : Sized, S::E : Copy + Zero + One {
     // Inversion doesn't use SIMD for now. 
 
     /// Gauss-Jordan inversion
-    fn invert(&self, field : &impl GaloisField) -> Option<Self>
+    fn invert(&self, field : &G) -> Option<Self>
     where
-	S::E: PartialEq {
+	S::E: PartialEq,
+	S::E: From<<G as GaloisField>::E> + Copy + Zero + One,
+    <G as GaloisField>::E: From<<S as Simd>::E> + Copy + Zero + One
+    {
 
 	assert!(self.is_rowwise());
 	assert_eq!(self.rows(), self.cols());
@@ -395,7 +400,7 @@ where Self : Sized, S::E : Copy + Zero + One {
 	    // keyed to both, although later on Simd will also depend
 	    // on a reference implementation of GF(2) due to needing
 	    // to build poly-specific lookup tables.
-	    let inverse = field.inv(mat.indexed_read(index));
+	    let inverse = field.inv(mat.indexed_read(index).into());
 
 	    
 	    // Scan up and down from the diagonal adding a multiple of
@@ -418,11 +423,11 @@ where Self : Sized, S::E : Copy + Zero + One {
 }
 
 
-pub unsafe fn simd_warm_multiply<S : Simd + Copy>(
-    xform  : &mut impl SimdMatrix<S>,
-    input  : &mut impl SimdMatrix<S>,
-    output : &mut impl SimdMatrix<S>)
-where S::E : Copy + Zero + One {
+pub unsafe fn simd_warm_multiply<S : Simd<E=G::E> + Copy, G>(
+    xform  : &mut impl SimdMatrix<S,G>,
+    input  : &mut impl SimdMatrix<S,G>,
+    output : &mut impl SimdMatrix<S,G>)
+where S::E : Copy + Zero + One, G : GaloisField {
 
     // dimension tests
     let c = input.cols();
@@ -603,10 +608,10 @@ where S::E : Copy + Zero + One {
 /// implementations. Note that this multiply routine does not check
 /// the gcd condition so it can be used to multiply matrices of
 /// arbitrary sizes.
-pub fn reference_matrix_multiply<S : Simd + Copy, G>(
-    xform  : &mut impl SimdMatrix<S>,
-    input  : &mut impl SimdMatrix<S>,
-    output : &mut impl SimdMatrix<S>,
+pub fn reference_matrix_multiply<S : Simd<E=G::E> + Copy, G>(
+    xform  : &mut impl SimdMatrix<S, G>,
+    input  : &mut impl SimdMatrix<S, G>,
+    output : &mut impl SimdMatrix<S, G>,
     field  : &G)
 where G : GaloisField,
 <S as Simd>::E: From<<G as GaloisField>::E> + Copy + Zero + One,

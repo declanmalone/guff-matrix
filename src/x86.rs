@@ -691,7 +691,9 @@ const SHUFFLE_MASK : [u8; 48] = [
     255, 255, 255, 255, 255, 255, 255, 255,
 ];
 
-impl SimdMatrix<X86u8x16Long0x11b> for X86Matrix<X86u8x16Long0x11b> {
+use guff::F8;
+
+impl SimdMatrix<X86u8x16Long0x11b,F8> for X86Matrix<X86u8x16Long0x11b> {
 
     fn new(rows : usize, cols : usize, is_rowwise : bool) -> Self {
 	let size = rows * cols;
