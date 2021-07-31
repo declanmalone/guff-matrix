@@ -342,8 +342,8 @@ where Self : Sized, S::E : Copy + Zero + One,
     fn invert(&self, field : &G) -> Option<Self>
     where
 	S::E: PartialEq,
-	S::E: From<<G as GaloisField>::E> + Copy + Zero + One,
-    <G as GaloisField>::E: From<<S as Simd>::E> + Copy + Zero + One
+	S::E: Copy + Zero + One,
+//    <G as GaloisField>::E: From<<S as Simd>::E> + Copy + Zero + One
     {
 
 	assert!(self.is_rowwise());
@@ -400,7 +400,7 @@ where Self : Sized, S::E : Copy + Zero + One,
 	    // keyed to both, although later on Simd will also depend
 	    // on a reference implementation of GF(2) due to needing
 	    // to build poly-specific lookup tables.
-	    let inverse = field.inv(mat.indexed_read(index).into());
+	    let inverse = field.inv(mat.indexed_read(index));
 
 	    
 	    // Scan up and down from the diagonal adding a multiple of
