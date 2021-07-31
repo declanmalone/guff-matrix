@@ -103,7 +103,7 @@ impl VmullEngine8x8 {
 				  -> Self {
 	let tbl2 = uint8x8x2_t ( lo.vec, hi.vec );
 	// 3 vector instructions saved: load mask, splat off, add
-	vtbl2_u8(tbl2, mask).into()	
+	vtbl2_u8(tbl2, mask.vec).into()	
     }
 
     // create mask, called when starting off and *ra_size changes
@@ -764,23 +764,6 @@ pub struct ArmMatrix<S : Simd> {
 /// Concrete implementation of matrix for Arm
 impl ArmMatrix<VmullEngine8x8> {
 
-    pub fn new(rows : usize, cols : usize, is_rowwise : bool) -> Self {
-	let size = rows * cols;
-	if size < 8 {
-	    panic!("This matrix can't handle rows * cols < 8 bytes");
-	}
-
-	// add an extra 15 guard bytes beyond size
-	let array = vec![0u8; size + 7];
-
-	// set up a dummy value as an alternative to PhantomData
-	let _zero = VmullEngine8x8::zero_vector();
-	
-	ArmMatrix::<VmullEngine8x8> {
-	    rows, cols, is_rowwise, array, _zero
-	}
-    }
-
     pub fn fill(&mut self, data : &[u8]) {
 	let size = self.size();
 	if data.len() != size {
@@ -799,7 +782,26 @@ impl ArmMatrix<VmullEngine8x8> {
 
 }
 
-impl SimdMatrix<VmullEngine8x8> for ArmMatrix<VmullEngine8x8> {
+use guff::F8;
+
+impl SimdMatrix<VmullEngine8x8,F8> for ArmMatrix<VmullEngine8x8> {
+
+    fn new(rows : usize, cols : usize, is_rowwise : bool) -> Self {
+	let size = rows * cols;
+	if size < 8 {
+	    panic!("This matrix can't handle rows * cols < 8 bytes");
+	}
+
+	// add an extra 7 guard bytes beyond size
+	let array = vec![0u8; size + 7];
+
+	// set up a dummy value as an alternative to PhantomData
+	let _zero = VmullEngine8x8::zero_vector();
+	
+	ArmMatrix::<VmullEngine8x8> {
+	    rows, cols, is_rowwise, array, _zero
+	}
+    }
 
     #[inline(always)]
     fn rows(&self) -> usize { self.rows }
@@ -813,6 +815,11 @@ impl SimdMatrix<VmullEngine8x8> for ArmMatrix<VmullEngine8x8> {
     fn as_slice(&self) -> &[u8] {
 	let size = self.size();
 	&self.array[0..size]
+    }
+
+    #[inline(always)]
+    fn indexed_read(&self, index : usize) -> u8 {
+	self.array[index]
     }
 
     // #[inline(always)]

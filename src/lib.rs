@@ -343,6 +343,7 @@ where Self : Sized, S::E : Copy + Zero + One,
     where
 	S::E: PartialEq,
 	S::E: Copy + Zero + One,
+        G::E: Copy,
 //    <G as GaloisField>::E: From<<S as Simd>::E> + Copy + Zero + One
     {
 
@@ -355,8 +356,12 @@ where Self : Sized, S::E : Copy + Zero + One,
 	// adjoin an identity matrix on the right
 	let mut mat = self.adjoin_right(&Self::identity(self.rows(), true));
 
+	// store these in variables to satisfy the borrow checker
+	let rows = mat.rows();
+	let cols = mat.cols();
+
 	let mut index = 0;	// index of diagonal element
-	let mut rowsize = mat.cols(); // distance from diagonal to end
+	let mut rowsize = cols; // distance from diagonal to end
 	for row in 0..mat.rows() {
 
 	    // If the matrix is invertible, there must be a non-zero
@@ -365,13 +370,13 @@ where Self : Sized, S::E : Copy + Zero + One,
 	    // rows.
 	    if mat.indexed_read(index) == S::E::zero() {
 		let mut found_row = false;
-		let mut index_below = index + mat.cols();
-		for row_below in row + 1..mat.rows() {
+		let mut index_below = index + cols;
+		for _row_below in row + 1..rows {
 		    if mat.indexed_read(index_below) != S::E::zero() {
 			found_row = true;
 			break;
 		    }
-		    index_below += mat.cols();
+		    index_below += cols;
 		}
 		// It should be pretty clear that if the caller tries
 		// to unwrap the inverse matrix and gets none, that
@@ -401,24 +406,61 @@ where Self : Sized, S::E : Copy + Zero + One,
 	    // on a reference implementation of GF(2) due to needing
 	    // to build poly-specific lookup tables.
 	    let inverse = field.inv(mat.indexed_read(index));
-
+	    mat.indexed_write(index, S::E::one()); // element/element
+	    field.vec_constant_scale_in_place(
+		&mut mat.as_mut_slice()[index + 1 .. index + rowsize],
+		inverse);
 	    
 	    // Scan up and down from the diagonal adding a multiple of
 	    // the current row so that the target row has zero in this
-	    // column
-	    for other_row in 0..mat.rows() {
+	    // column. Need a mutable slice for each row that's going
+	    // to be updated, and a regular slice for the source row.
+	    // We can't have both mutable and immutable borrows,
+	    // though, so we have to clone the source row.
+
+	    let mut source_row : Vec<_> = Vec::with_capacity(rowsize - 1);
+	    source_row.copy_from_slice(
+		&mat.as_slice()[index + 1 .. rowsize]);
+	    let mut mut_rows = mat.as_mut_slice().chunks_mut(cols);
+	    
+	    for other_row in 0..rows {
+		// always consume this row
+		let this_row =  mut_rows.next().unwrap();
 		if other_row == row { continue }
+
+		// nothing to do if element already zero
+		let elem : G::E = this_row[row];
+		if elem == S::E::zero().into() { continue };
+
+	    	// guff has a non-working "fused multiply-add"
+		// function right now, so emulate it
+		this_row[row] = S::E::zero();	   // save a multiply/add
+
+		let this_row = &mut this_row[row+1..]; // skip 0s
+		for col in 0 .. rowsize {
+		    this_row[col]
+			= field.add(this_row[col],
+				    field.mul(source_row[col], elem));
+		}
 	    }
 
 	    // as we move down the diagonal, each row has fewer
 	    // columns to process
 	    rowsize -= 1;
+	    index += cols + 1;
 	}
 
 	// read off the adjoined data, which now has the inverse
 	// matrix
+	let mut output = Self::new(self.rows(), self.cols(), true);
+	let mut mut_chunks = output.as_mut_slice().chunks_mut(self.cols());
+	let mut from_chunks = mat.as_slice().chunks(self.cols());
+	for chunk in mut_chunks {
+	    let _ = from_chunks.next();
+	    chunk.copy_from_slice(from_chunks.next().unwrap());
+	}
 
-	None
+	Some(output)
     }
 }
 
@@ -933,4 +975,35 @@ mod tests {
 	    }
 	}
     }
+
+    #[test]
+    fn test_inverse() {
+	let xform = vec![
+	    0x35, 0x36, 0x82, 0x7a ,0xd2, 0x7d, 0x75, 0x31,
+            0x0e, 0x76, 0xc3, 0xb0, 0x97, 0xa8, 0x47, 0x14,
+            0xf4, 0x42, 0xa2, 0x7e, 0x1c, 0x4a, 0xc6, 0x99,
+	    0x3d, 0xc6, 0x1a, 0x05, 0x30, 0xb6, 0x42, 0x0f,
+            0x81, 0x6e, 0xf2, 0x72, 0x4e, 0xbc, 0x38, 0x8d,
+	    0x5c, 0xe5, 0x5f, 0xa5, 0xe4, 0x32, 0xf8, 0x44,
+	    0x89, 0x28, 0x94, 0x3c, 0x4f, 0xec, 0xaa, 0xd6,
+	    0x54, 0x4b, 0x29, 0xb8, 0xd5, 0xa4, 0x0b, 0x2c,
+        ];
+	let inverse = vec![
+            0x3e, 0x02, 0x23, 0x87, 0x8c, 0xc0, 0x4c, 0x79,
+            0x5d, 0x2b, 0x2a, 0x5b, 0x7e, 0xfe, 0x25, 0x36,
+            0xf2, 0xa9, 0xb5, 0x57, 0xa2, 0xf6, 0xa2, 0x7d,
+            0x11, 0x5e, 0xe4, 0x61, 0x59, 0xf4, 0xb9, 0x42,
+            0xd5, 0x16, 0xb8, 0x5b, 0x30, 0x85, 0x1e, 0x72,
+            0x3b, 0xf7, 0x1b, 0x5b, 0x4c, 0x55, 0x35, 0x04,
+            0x58, 0x95, 0x73, 0x33, 0x8a, 0x77, 0x1c, 0xf4,
+            0x59, 0xc0, 0x7b, 0x13, 0x9f, 0x8b, 0xbe, 0xe3,
+	];
+
+	let mut xmat = Matrix::new(8,8,true);
+	xmat.fill(xform.as_slice());
+
+	let out = xmat.invert(&new_gf8(0x11b,0x1b)).unwrap();
+	assert_eq!(out.as_slice(), xform.as_slice());
+    }
+	
 }
