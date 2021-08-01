@@ -73,7 +73,7 @@
 
 use guff::*;
 use num::{Zero, One};
-use core::mem::size_of;
+// use core::mem::size_of;
 
 
 // Only one x86 implementation, included automatically
@@ -84,7 +84,7 @@ pub mod x86;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn _monomorph() {
 
-    use crate::x86::*;
+    //    use crate::x86::*;
 
     #[inline(never)]
     fn inner_fn<S : Simd<E=u8> + Copy>(
@@ -231,7 +231,7 @@ pub trait Simd {
 
 /// Trait for a matrix that supports Simd iteration
 pub trait SimdMatrix<S : Simd<E=G::E>, G : GaloisField>
-where Self : Sized, S::E : Copy + Zero + One,
+where Self : Sized, S::E : PartialEq + Copy + Zero + One,
 
 {
     // const IS_ROWWISE : bool;
@@ -340,18 +340,12 @@ where Self : Sized, S::E : Copy + Zero + One,
 
     /// Gauss-Jordan inversion
     fn invert(&self, field : &G) -> Option<Self>
-    where
-	S::E: PartialEq,
-	S::E: Copy + Zero + One,
-        G::E: Copy,
-//    <G as GaloisField>::E: From<<S as Simd>::E> + Copy + Zero + One
     {
 
 	assert!(self.is_rowwise());
 	assert_eq!(self.rows(), self.cols());
-	// I have no (type-based) checking that the field passed in is
-	// actually suitable. A runtime check will have to do:
-	assert_eq!((field.order() >> 3) as usize, size_of::<S::E>());
+	// deleted, since type constraints guarantees G::E == S::E
+	// assert_eq!((field.order() >> 3) as usize, size_of::<S::E>());
 
 	// adjoin an identity matrix on the right
 	let mut mat = self.adjoin_right(&Self::identity(self.rows(), true));
@@ -455,11 +449,11 @@ where Self : Sized, S::E : Copy + Zero + One,
 		// nothing to do if element already zero
 		let elem : G::E = this_row[diag];
 		eprintln!("Row {} has element {:x?}", other_row, elem);
-		// if elem == S::E::zero().into() { continue };
+		if elem == S::E::zero().into() { continue };
 
 	    	// guff has a non-working "fused multiply-add"
 		// function right now, so emulate it
-		// this_row[diag] = S::E::zero();	   // save a multiply/add
+		this_row[diag] = S::E::zero();	   // save a multiply/add
 
 		let this_row = &mut this_row[diag..]; // skip 0s
 		eprintln!("this_row is {:x?}", this_row);
@@ -493,7 +487,7 @@ where Self : Sized, S::E : Copy + Zero + One,
 	// read off the adjoined data, which now has the inverse
 	// matrix
 	let mut output = Self::new(self.rows(), self.cols(), true);
-	let mut mut_chunks = output.as_mut_slice().chunks_mut(self.cols());
+	let mut_chunks = output.as_mut_slice().chunks_mut(self.cols());
 	let mut from_chunks = mat.as_slice().chunks(self.cols());
 	for chunk in mut_chunks {
 	    let _ = from_chunks.next();
@@ -728,7 +722,7 @@ where G : GaloisField,
 	    let output_index = output.rowcol_to_index(row,col);
 
 	    let mut dp = S::zero_element();
-	    for i in 0..k {
+	    for _ in 0..k {
 		dp = S::add_elements(dp, field
 				     .mul(xform_array[xform_index].into(),
 					  input_array[input_index].into()
@@ -772,8 +766,6 @@ where G : GaloisField,
 mod tests {
 
     use super::*;
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    use super::x86::*;
     use guff::{GaloisField, new_gf8};
 
     #[test]
@@ -1059,8 +1051,8 @@ mod tests {
 				  &mut ref_output,
 				  &new_gf8(0x11b, 0x1b));
 
-	//	assert_eq!(format!("{:2x?}", ref_output.as_slice())		   ,
-	//	   format!("{:2x?}", identity.as_slice()));
+	assert_eq!(format!("{:2x?}", ref_output.as_slice()),
+		   format!("{:2x?}", identity.as_slice()));
     }
 
     #[test]
@@ -1102,7 +1094,7 @@ mod tests {
 				  &mut ref_output,
 				  &new_gf8(0x11b, 0x1b));
 
-	assert_eq!(format!("{:2x?}", ref_output.as_slice())		   ,
+	assert_eq!(format!("{:2x?}", ref_output.as_slice()),
 		   format!("{:2x?}", identity.as_slice()));
     }
 	
