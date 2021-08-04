@@ -1310,6 +1310,7 @@ mod tests {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64",
               all(any(target_arch = "aarch64", target_arch = "arm"),
                   feature = "arm_vmull")))]
+    #[test]
     fn test_new_simd_conformance() {
         let cols = 19;
         for k in 4..9 {

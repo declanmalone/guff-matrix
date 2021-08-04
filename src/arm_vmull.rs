@@ -108,7 +108,7 @@ impl VmullEngine8x8 {
 
     // create mask, called when starting off and *ra_size changes
     unsafe fn extract_mask_from_offset(offset : usize) -> Self {
-        debug_assert!(offset < 8);
+//        debug_assert!(offset < 8);
         let mut mask = transmute( [0u8,1,2,3,4,5,6,7] ); // null rotate mask
         let add_amount = vmov_n_u8(offset as u8);
         vadd_u8(mask, add_amount).into()
@@ -265,8 +265,8 @@ impl Simd for VmullEngine8x8 {
         unsafe { vmov_n_u8(0).into() }
     }
 
-    unsafe fn starting_mask() {
-        Self::read_simd(vec![8,9,10,11,12,13,14,15].as_ptr());
+    unsafe fn starting_mask() -> Self {
+        Self::read_simd(vec![8,9,10,11,12,13,14,15].as_ptr())
     }
 
 
@@ -546,7 +546,7 @@ impl Simd for VmullEngine8x8 {
                                   size      : usize,
                                   ra_size   : &mut usize,
                                   ra        : &mut Self,
-                                  mask : &Self)
+                                  mask : &mut Self)
                         -> Self {
 
         let mut new_ra : Self; // = r0; // silence compiler
@@ -695,7 +695,7 @@ impl Simd for VmullEngine8x8 {
                     result = Self::extract_from_offset(&r0, &r1, 8 - available);
                     new_ra = r1;
                 }
-                *mask = extract_mask_from_offset(8 - available);
+                *mask = Self::extract_mask_from_offset(8 - available);
 
             } else {  // array_index >= size && available >= 8
 
@@ -731,7 +731,7 @@ impl Simd for VmullEngine8x8 {
                     // else all 8 bytes come from r0
                     result = r0;
                 }
-                *mask = extract_mask_from_offset(8 - new_ra_size);
+                *mask = Self::extract_mask_from_offset(8 - new_ra_size);
             }
             
         }
@@ -1014,9 +1014,9 @@ impl SimdMatrix<VmullEngine8x8,F8> for ArmMatrix<VmullEngine8x8> {
 
     fn new(rows : usize, cols : usize, is_rowwise : bool) -> Self {
         let size = rows * cols;
-        if size < 8 {
-            panic!("This matrix can't handle rows * cols < 8 bytes");
-        }
+        // if size < 8 {
+        //     panic!("This matrix can't handle rows * cols < 8 bytes");
+        // }
 
         // add an extra 7 guard bytes beyond size
         let array = vec![0u8; size + 7];
