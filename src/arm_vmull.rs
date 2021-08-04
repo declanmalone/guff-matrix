@@ -603,7 +603,7 @@ impl Simd for VmullEngine8x8 {
                 // combine ra + r0.
                 result = Self
                 // ::extract_from_offset(&ra, &r0, 8 - *ra_size);
-                    ::extract_mask_from_offset(&ra, &r0, *mask);
+                    ::extract_using_mask(&ra, &r0, &*mask);
             } else {
                 // else all 8 bytes come from r0
                 result = r0;
@@ -677,7 +677,7 @@ impl Simd for VmullEngine8x8 {
 
                     r0 = Self
                         //::extract_from_offset(&ra, &r0, 8 - *ra_size);
-                        ::extract_using_mask(&ra, &r0, *mask);
+                        ::extract_using_mask(&ra, &r0, &*mask);
 
                     // now we have available bytes in r0, so to use
                     // extract_from_offset again with r0, r1, we have
@@ -726,7 +726,7 @@ impl Simd for VmullEngine8x8 {
                     // combine ra + r0.
                     result = Self
                     // ::extract_from_offset(&ra, &r0, 8 - *ra_size);
-                        ::extract_using_mask(&ra, &r0, *mask);
+                        ::extract_using_mask(&ra, &r0, &*mask);
                 } else {
                     // else all 8 bytes come from r0
                     result = r0;
