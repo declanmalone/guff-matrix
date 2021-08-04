@@ -266,7 +266,7 @@ impl Simd for VmullEngine8x8 {
     }
 
     unsafe fn starting_mask() {
-        Self::read_simd(vec![0,1,2,3,4,5,6,7,8].as_ptr());
+        Self::read_simd(vec![8,9,10,11,12,13,14,15].as_ptr());
     }
 
 
@@ -511,6 +511,227 @@ impl Simd for VmullEngine8x8 {
                     // else all 8 bytes come from r0
                     result = r0;
                 }
+            }
+            
+        }
+
+        // save updated variables
+
+        *ra_size = new_ra_size;
+        *ra = new_ra;
+
+        new_mod_index += 8;
+        if new_mod_index >= size { new_mod_index -= size }
+        *mod_index = new_mod_index;
+
+        // eprintln!("final ra_size: {}", *ra_size);
+        // eprintln!("final ra: {:x?}", (*ra).vec);
+        // eprintln!("result: {:x?}", result.vec);
+        
+        if *array_index >= size {
+            // not an error
+            // eprintln!("Fixing up array index {} to zero", *array_index);
+            *array_index = 0;
+        }
+
+        return result;
+
+        // END REWRITE!
+        
+    }
+                        
+    unsafe fn read_next_with_mask(mod_index : &mut usize,
+                                  array_index : &mut usize,
+                                  array     : &[Self::E],
+                                  size      : usize,
+                                  ra_size   : &mut usize,
+                                  ra        : &mut Self,
+                                  mask : &Self)
+                        -> Self {
+
+        let mut new_ra : Self; // = r0; // silence compiler
+        let mut new_mod_index = *mod_index;
+        let mut new_ra_size   = *ra_size;
+
+        // Both should be OK, but it's safer to only look at
+        // mod_index, since that only changes once per call and so is
+        // easier to reason about:
+
+        let available_at_end = size - *array_index;
+        // apparently not:
+        // let available_at_end = size - *mod_index;
+
+        let available = *ra_size + available_at_end;
+
+        // at end, when updating mod_index, we wrap it around, so this
+        // should always be strictly positive
+        debug_assert!(available_at_end > 0);
+
+        // eprintln!("Starting mod_index: {}", *mod_index);
+        // eprintln!("Starting array_index: {}", *array_index);
+        // eprintln!("Available: ra {} + at end {} = {}",
+        //        *ra_size, available_at_end, available);
+
+        // r0 could have full or partial simd in it
+        let read_ptr = array.as_ptr().offset((*array_index) as isize);
+        let mut r0 : Self = Self::read_simd(read_ptr as *const u8).into();
+        *array_index += 8;
+
+        // eprintln!("Read r0: {:x?}", r0.vec);
+
+        let result;
+        let mut have_r1 = false;
+        let mut r1 = r0;                // silence compiler
+
+        // Check against array_index here because we've incremented
+        // it. Could also check if available_at_end <= 8, which should
+        // be the same thing.
+        let array_bool = *array_index >= size;
+        let avail_bool = available_at_end <= 8;
+
+        // apparently not...
+        // debug_assert_eq!(array_bool, avail_bool);
+
+        // restructure if/then to put most common case first, then
+        // return immediately without jumping to end
+        if *array_index < size {  // *array_index < size
+
+            // eprintln!("*array_index < size");
+
+            // start with the easiest (and most common) case:
+            if *ra_size > 0 {
+                // combine ra + r0.
+                result = Self
+                // ::extract_from_offset(&ra, &r0, 8 - *ra_size);
+                    ::extract_mask_from_offset(&ra, &r0, *mask);
+            } else {
+                // else all 8 bytes come from r0
+                result = r0;
+            }
+            new_ra = r0;
+
+            // save updated variables
+            //      *ra_size = new_ra_size;
+            *ra = new_ra;
+
+            new_mod_index += 8;
+            if new_mod_index >= size { new_mod_index -= size }
+            *mod_index = new_mod_index;
+
+            // eprintln!("final ra_size: {}", *ra_size);
+            // eprintln!("final ra: {:x?}", (*ra).vec);
+            // eprintln!("result: {:x?}", result.vec);
+            
+            if *array_index >= size {
+                // not an error
+                // eprintln!("Fixing up array index {} to zero", *array_index);
+                *array_index = 0;
+            }
+
+            return result;
+
+        } else  { // *array_index >= size {
+
+            // eprintln!("*array_index >= size");
+            
+            // This means that r0 is the last read from the array.
+
+            // Scenarios for reading:
+            //
+            // a) There's not enough available between ra + r0, so we
+            //    have to read from the start of the stream again
+            //
+            // b) We have enough between ra + r0 (so no read)
+            //
+            // Scenario a will definitely produce readahead (since
+            // we're reading 8 new values from the start), while
+            // scenario b may have readahead depeding on the
+            // comparison of available <=> 8
+            //
+            // Obviously new readahead size calculations will be
+            // different for each.
+
+            if available < 8 {
+
+                // eprintln!("*array_index >= size && available < 8");
+
+                let read_ptr = array.as_ptr();
+                r1 = Self::read_simd(read_ptr as *const u8);
+                *array_index = 8;
+
+                // We had `available` from ra and r0, and we read
+                // 8, then returned 8, so we still have `available`
+
+                // eprintln!("Changing ra_size to available");
+                new_ra_size = available;
+
+                // how best to approach register shifting depends on
+                // whether we have ra or not.
+
+                if *ra_size > 0 {
+
+                    // Combine ra and r0
+
+                    // ra is already in top, so extract_from_offset
+                    // works fine with r0
+
+                    r0 = Self
+                        //::extract_from_offset(&ra, &r0, 8 - *ra_size);
+                        ::extract_using_mask(&ra, &r0, *mask);
+
+                    // now we have available bytes in r0, so to use
+                    // extract_from_offset again with r0, r1, we have
+                    // to move those bytes to the top
+                    r0 = Self::shift_left(r0, 8 - available);
+                    result = Self::extract_from_offset(&r0, &r1, 8 - available);
+
+                    // r1 already has its bytes in the right place (at top)
+                    new_ra = r1;                    
+
+                } else {
+
+                    // no readahead, so just combine bytes of r0, r1
+                    r0 = Self::shift_left(r0, 8 - available);
+                    result = Self::extract_from_offset(&r0, &r1, 8 - available);
+                    new_ra = r1;
+                }
+                *mask = extract_mask_from_offset(8 - available);
+
+            } else {  // array_index >= size && available >= 8
+
+                // eprintln!("*array_index >= size && available >= 8");
+
+                // Scenario b for end of stream (no read)
+
+                // new_ra_size is 8 less because we take 8 without
+                // replenishing with another read
+                new_ra_size = available - 8;
+
+                // if r0 still has bytes after this, we have to shift
+                // them to the top as new ra
+
+                // last bug (until the next one):
+                
+                if new_ra_size > 0 {
+                    // new_ra = Self::shift_left(r0,8 - *ra_size);
+                    new_ra = Self::shift_left(r0,8 - available_at_end);
+                } else {
+                    // value is junk, so we don't need to write
+                    new_ra = r0; // keep compiler happy
+                }
+
+                // here, too, we check whether we have readahead and
+                // do different register ops depending
+                if *ra_size > 0 {
+                    // combine ra + r0.
+                    result = Self
+                    // ::extract_from_offset(&ra, &r0, 8 - *ra_size);
+                        ::extract_using_mask(&ra, &r0, *mask);
+                } else {
+                    // else all 8 bytes come from r0
+                    result = r0;
+                }
+                *mask = extract_mask_from_offset(8 - new_ra_size);
             }
             
         }
