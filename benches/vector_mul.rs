@@ -97,6 +97,45 @@ fn simd_gf8_matrix_mul(cols : usize) {
     }
 }
 
+fn new_simd_gf8_matrix_mul(cols : usize) {
+    unsafe {
+	let identity = [
+	    1,0,0, 0,0,0, 0,0,0,
+	    0,1,0, 0,0,0, 0,0,0,
+	    0,0,1, 0,0,0, 0,0,0,
+	    0,0,0, 1,0,0, 0,0,0,
+	    0,0,0, 0,1,0, 0,0,0,
+	    0,0,0, 0,0,1, 0,0,0,
+	    0,0,0, 0,0,0, 1,0,0,
+	    0,0,0, 0,0,0, 0,1,0,
+	    0,0,0, 0,0,0, 0,0,1,
+	];
+	let mut transform =	// mut because of iterator
+	    Matrix::new(9,9,true);
+	transform.fill(&identity[..]);
+
+	// 17 is coprime to 9
+	let mut input =
+	    Matrix::new(9,cols,false);
+
+	// create a vector with elements 1..255 repeating
+	let src : Vec<u8> = (1u8..=255).collect();
+	let iter = src.into_iter().cycle().take(9*cols);
+	let vec : Vec<u8> = iter.collect::<Vec<_>>();
+	
+	// let vec : Vec<u8> = (1u8..=9 * cols).collect();
+	input.fill(&vec[..]);
+
+	let mut output =
+	    Matrix::new(9,cols,false);
+
+	// works if output is stored in colwise format
+	new_simd_warm_multiply(&mut transform, &mut input, &mut output);
+	// array has padding, so don't compare that
+	assert_eq!(output.array[0..9*cols], vec);
+    }
+}
+
 fn bench_simd_gf8_matrix_mul_17(c: &mut Criterion) {
     c.bench_function("simd gf8 matrix 9x17",
 		     |b| b.iter(|| simd_gf8_matrix_mul(17)));
@@ -105,6 +144,11 @@ fn bench_simd_gf8_matrix_mul_17(c: &mut Criterion) {
 fn bench_simd_gf8_matrix_mul_16384(c: &mut Criterion) {
     c.bench_function("simd gf8 matrix 9x16384",
 		     |b| b.iter(|| simd_gf8_matrix_mul(16384)));
+}
+
+fn bench_new_simd_gf8_matrix_mul_16384(c: &mut Criterion) {
+    c.bench_function("new simd gf8 matrix 9x16384",
+		     |b| b.iter(|| new_simd_gf8_matrix_mul(16384)));
 }
 
 fn ref_gf8_matrix_mul(cols : usize) {
@@ -183,6 +227,8 @@ criterion_group!(benches,
 		 bench_simd_gf8_matrix_mul_17,
 		 bench_ref_gf8_matrix_mul_16384,
 		 bench_simd_gf8_matrix_mul_16384,
+                 // 0.1.13
+		 bench_new_simd_gf8_matrix_mul_16384,
 );
 criterion_main!(benches);
 
