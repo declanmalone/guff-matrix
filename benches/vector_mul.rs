@@ -235,7 +235,7 @@ fn serial_write(cols : usize) {
 
     // The loop is apparently not optimised out, but just iterate over
     // it once to be sure
-    let sum = 0;
+    let mut sum = 0;
     for c in 0..19*cols {
         sum ^= out[c];
     }
@@ -256,7 +256,7 @@ fn scattered_write(cols : usize) {
         col = if col == cols { 0 } else { col + 1 };
         row = if row == 19 { 0 } else { row + 1 };
     }
-    let sum = 0;
+    let mut sum = 0;
     for c in 0..19*cols {
         sum ^= out[c];
     }
