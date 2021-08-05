@@ -83,6 +83,7 @@ impl VmullEngine8x8 {
 
     // lo is current time, hi is in the future
     // extracts 8 bytes. Do I need extract_n_from_offset? Maybe.
+    #[inline(always)]
     unsafe fn extract_from_offset(lo: &Self, hi : &Self, offset : usize)
                                   -> Self {
         debug_assert!(offset < 8);
@@ -99,6 +100,7 @@ impl VmullEngine8x8 {
     // performance improvement over calculating it from scratch each
     // time. Obviously, if ra_size changes, the mask also needs to
     // change.
+    #[inline(always)]
     unsafe fn extract_using_mask(lo: &Self, hi : &Self, mask : &Self)
                                   -> Self {
         let tbl2 = uint8x8x2_t ( lo.vec, hi.vec );
@@ -539,7 +541,8 @@ impl Simd for VmullEngine8x8 {
         // END REWRITE!
         
     }
-                        
+
+    // #[inline(always)]
     unsafe fn read_next_with_mask(mod_index : &mut usize,
                                   array_index : &mut usize,
                                   array     : &[Self::E],
@@ -668,6 +671,8 @@ impl Simd for VmullEngine8x8 {
                 // how best to approach register shifting depends on
                 // whether we have ra or not.
 
+                let new_mask = Self::extract_mask_from_offset(8 - available);
+
                 if *ra_size > 0 {
 
                     // Combine ra and r0
@@ -683,7 +688,7 @@ impl Simd for VmullEngine8x8 {
                     // extract_from_offset again with r0, r1, we have
                     // to move those bytes to the top
                     r0 = Self::shift_left(r0, 8 - available);
-                    result = Self::extract_from_offset(&r0, &r1, 8 - available);
+                    result = Self::extract_using_mask(&r0, &r1, &new_mask);
 
                     // r1 already has its bytes in the right place (at top)
                     new_ra = r1;                    
@@ -692,10 +697,10 @@ impl Simd for VmullEngine8x8 {
 
                     // no readahead, so just combine bytes of r0, r1
                     r0 = Self::shift_left(r0, 8 - available);
-                    result = Self::extract_from_offset(&r0, &r1, 8 - available);
+                    result = Self::extract_using_mask(&r0, &r1, &new_mask);
                     new_ra = r1;
                 }
-                *mask = Self::extract_mask_from_offset(8 - available);
+                *mask = new_mask;
 
             } else {  // array_index >= size && available >= 8
 
@@ -1072,12 +1077,34 @@ impl SimdMatrix<VmullEngine8x8,F8> for ArmMatrix<VmullEngine8x8> {
 
 
 // I'm not sure if there's a difference between using a purely
-// functional style and mutable args. I'll try both and see what the
-// benchmarks tell me.
+// functional style and passing mutable args. I'll try both and see
+// what the benchmarks tell me.
 
-fn nar_read_next_tuple(index : usize, ) {
+pub fn nar_read_next_tuple(index : usize, size : usize, vec : &[u8])
+                       -> (usize, VmullEngine8x8) {
+    unsafe {
+        let addr = vec.as_ptr();
+        let ret = VmullEngine8x8::read_simd(addr.offset(index as isize));
+        let mut new_index = index + 8;
+        if new_index >= size {
+            new_index -= size;
+        }
+        (new_index, ret)
+    }
+}
 
-
+pub fn nar_read_next_mut(index : &mut usize, size : usize, vec : &[u8])
+                     -> VmullEngine8x8 {
+    unsafe {
+        let addr = vec.as_ptr();
+        let ret = VmullEngine8x8::read_simd(addr.offset(*index as isize));
+        let mut new_index = *index + 8;
+        if new_index >= size {
+            new_index -= size;
+        }
+        *index = new_index;
+        ret
+    }
 }
 
 
@@ -1570,6 +1597,81 @@ mod tests {
              */
         }
     }
+
+    #[test]
+    fn test_read_next_vs_nars() {
+
+        // state variables that read_next will update
+        let mut ra;
+        unsafe { ra = VmullEngine8x8::zero_vector() }
+        let mut ra_size = 0;
+        let mut mod_index = 0;
+        let mut array_index = 0;
+        let size = 21;
+        let array = [ 0u8,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,
+                      0,1,2,3,4,5,6,7]; // padding
+
+        // additionally, we'll track non-modular index so that we
+        // can check that index % size == mod_index
+        let mut index = 0;
+
+        // use iterators to make a reference stream
+        let mut check = (0u8..21).cycle();
+        let mut check_vec = [0u8; 8];
+        let addr = check_vec.as_ptr();
+        let old_mod_index = 0;
+
+        // variables for use with two non-aligned read functions
+        let mut nar_index_fn = 0;
+        let mut nar_index_mut = 0;
+        
+        for i in 0..42 {
+            unsafe {
+                // isn't there a quicker way to take 8 elements? Can't use
+                // check.chunks()
+                for i in 0..8 {
+                    check_vec[i] = check.next().unwrap();
+                }
+                eprintln!("\nAbsolute index {}", index);
+                index += 8;
+
+                // check against read_next
+                let got = VmullEngine8x8
+                    ::read_next(&mut mod_index,
+                                &mut array_index,
+                                &array[..],
+                                size,
+                                &mut ra_size,
+                                &mut ra);
+                assert_eq!(mod_index, index % size);
+
+                // reuse same v
+                let v = VmullEngine8x8::read_simd(addr);
+
+                assert_eq!(format!("{:x?}", got.vec),
+                           format!("{:x?}", v.vec));
+
+                // check against nar_read_next_tuple
+                let (new_nar_index_fn, got)
+                    = nar_read_next_tuple(nar_index_fn, size, &array[..]);
+                assert_eq!(mod_index, new_nar_index_fn % size);
+                nar_index_fn = new_nar_index_fn;
+
+                assert_eq!(format!("{:x?}", got.vec),
+                           format!("{:x?}", v.vec));
+
+                // check against nar_read_next_mut
+                let got = nar_read_next_mut(&mut nar_index_mut, size,
+                                            &array[..]);
+                assert_eq!(mod_index, nar_index_mut % size);
+
+                assert_eq!(format!("{:x?}", got.vec),
+                           format!("{:x?}", v.vec));
+
+            }
+        }
+    }
+
 
     
 }
