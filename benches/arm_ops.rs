@@ -43,14 +43,17 @@ pub mod arm_ops {
 
 }
 
+// bring the above into scope
+#[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), feature = "arm_vmull"))]
+pub use arm_ops::*;
+
+// and then run the benchmarks
 #[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), feature = "arm_vmull"))]
 criterion_group!(benches,
                  // 0.1.13
                  bench_ref_gf8_vec,
                  bench_simd_gf8_vec,
 );
-#[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), feature = "arm_vmull"))]
-pub use arm_ops::*;
 
 fn dummy(c: &mut Criterion) {
         
