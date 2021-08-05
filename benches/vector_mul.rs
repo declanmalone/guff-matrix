@@ -232,6 +232,14 @@ fn serial_write(cols : usize) {
         col = if col == cols { 0 } else { col + 1 };
         row = if col == 0 { row + 1 } else { row };
     }
+
+    // The loop is apparently not optimised out, but just iterate over
+    // it once to be sure
+    let sum = 0;
+    for c in 0..19*cols {
+        sum ^= out[c];
+    }
+    eprintln!("final sum {}", sum);
 }
 
 fn scattered_write(cols : usize) {
@@ -248,35 +256,40 @@ fn scattered_write(cols : usize) {
         col = if col == cols { 0 } else { col + 1 };
         row = if row == 19 { 0 } else { row + 1 };
     }
+    let sum = 0;
+    for c in 0..19*cols {
+        sum ^= out[c];
+    }
+    eprintln!("final sum {}", sum);
 }
 
 fn bench_serial_write_4k(c: &mut Criterion) {
-    c.bench_function("serial write 9 * 4k",
+    c.bench_function("serial write 19 * 4k",
                      |b| b.iter(|| serial_write(4096)));
 }
 
 fn bench_scattered_write_4k(c: &mut Criterion) {
-    c.bench_function("scattered write 9 * 4k",
+    c.bench_function("scattered write 19 * 4k",
                      |b| b.iter(|| scattered_write(4096)));
 }
 
 fn bench_serial_write_16k(c: &mut Criterion) {
-    c.bench_function("serial write 9 * 16k",
+    c.bench_function("serial write 19 * 16k",
                      |b| b.iter(|| serial_write(16384)));
 }
 
 fn bench_scattered_write_16k(c: &mut Criterion) {
-    c.bench_function("scattered write 9 * 16k",
+    c.bench_function("scattered write 19 * 16k",
                      |b| b.iter(|| scattered_write(16384)));
 }
 
 fn bench_serial_write_64k(c: &mut Criterion) {
-    c.bench_function("serial write 9 * 64k",
+    c.bench_function("serial write 19 * 64k",
                      |b| b.iter(|| serial_write(65536)));
 }
 
 fn bench_scattered_write_64k(c: &mut Criterion) {
-    c.bench_function("scattered write 9 * 64k",
+    c.bench_function("scattered write 19 * 64k",
                      |b| b.iter(|| scattered_write(65536)));
 }
 
