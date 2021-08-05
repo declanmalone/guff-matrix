@@ -818,10 +818,24 @@ impl Simd for VmullEngine8x8 {
     unsafe fn sum_across_n(lo : Self, hi : Self, n : usize, off : usize)
                            -> (Self::E, Self) {
         // let m = if off + n >= 8 { hi } else { lo };
+        
+        // can use left and right shifts, which might be more
+        // efficient
+        let mut bytes = lo;
+        if off > 0 {
+            bytes = Self::shift_right(bytes, off);
+        }
         if off + n >= 8 {
-            let extracted = Self::extract_from_offset(&lo, &hi, off);
-            let masked = Self::mask_start_elements(extracted, n).into();
-            let result = Self::xor_across(masked);
+            // let extracted = Self::extract_from_offset(&lo, &hi, off);
+            // let masked = Self::mask_start_elements(extracted, n).into();
+            // let result = Self::xor_across(masked);
+
+            // if we need some from hi
+            if off + n > 8 {
+                bytes = veor_u8(bytes.vec,
+                                 Self::shift_left(hi, 16 - (off + n)).vec)
+                    .into();
+            }
 
             // eprintln!("Got lo: {:x?}, hi: {:x?}, n: {}, off: {}",
             //        lo.vec, hi.vec, n, off);
@@ -829,15 +843,9 @@ impl Simd for VmullEngine8x8 {
             // eprintln!("masked: {:x?}", masked.vec);
             // eprintln!("xor result: {:x}", result);
 
-            ( result, hi )
+            ( Self::xor_across(bytes), hi )
         } else {
 
-            // can use left and right shifts, which might be more
-            // efficient
-            let mut bytes = lo;
-            if off > 0 {
-                bytes = Self::shift_right(bytes, off);
-            }
             if n < 8 {
                 bytes = Self::shift_left(bytes, 8 - n);
             }
@@ -1076,7 +1084,10 @@ impl SimdMatrix<VmullEngine8x8,F8> for ArmMatrix<VmullEngine8x8> {
 
     // #[inline(always)]
     fn indexed_write(&mut self, index : usize, elem : u8) {
-        self.array[index] = elem;
+        unsafe {                // genuinely unsafe
+            let addr = self.array.as_mut_ptr().offset(index as isize);
+            *addr = elem;
+        }
     }
 
     fn as_mut_slice(&mut self) -> &mut [u8] {
