@@ -15,7 +15,7 @@ pub mod arm_ops {
     use criterion::BenchmarkId;
 
 
-    fn ref_gf8_vec(size : usize) {
+    pub fn ref_gf8_vec(size : usize) {
         let av = vec![0x53u8; size];
         let bv = vec![0xcau8; size];
         let mut rv = vec![0x00u8; size];
@@ -26,7 +26,7 @@ pub mod arm_ops {
     
     // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     // use guff_matrix::x86::*;
-    fn simd_gf8_vec(size : usize) {
+    pub fn simd_gf8_vec(size : usize) {
         let av = vec![0x53u8; size];
         let bv = vec![0xcau8; size];
         let mut rv = vec![0x00u8; size];
@@ -36,11 +36,11 @@ pub mod arm_ops {
         // unsafe { vmul_p8_buffer(&mut rv[..], &av[..], &bv[..], 0x1b); }
     }
 
-    fn bench_ref_gf8_vec(c: &mut Criterion) {
+    pub fn bench_ref_gf8_vec(c: &mut Criterion) {
         c.bench_function("ref gf8 vec tmp", |b| b.iter(|| ref_gf8_vec(32768)));
     }
 
-    fn bench_simd_gf8_vec(c: &mut Criterion) {
+    pub fn bench_simd_gf8_vec(c: &mut Criterion) {
         c.bench_function("simd gf8 vec tmp", |b| b.iter(|| simd_gf8_vec(32768)));
     }
 
@@ -55,8 +55,8 @@ pub use arm_ops::*;
 #[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), feature = "arm_vmull"))]
 criterion_group!(benches,
                  // 0.1.13
-                 arm_ops::bench_ref_gf8_vec,
-                 arm_ops::bench_simd_gf8_vec,
+                 bench_ref_gf8_vec,
+                 bench_simd_gf8_vec,
 );
 
 fn dummy(c: &mut Criterion) {
