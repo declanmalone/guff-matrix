@@ -239,7 +239,7 @@ fn serial_write(cols : usize) {
     for c in 0..19*cols {
         sum ^= out[c];
     }
-    eprintln!("final sum {}", sum);
+    // eprintln!("final sum {}", sum);
 }
 
 fn scattered_write(cols : usize) {
@@ -260,7 +260,7 @@ fn scattered_write(cols : usize) {
     for c in 0..19*cols {
         sum ^= out[c];
     }
-    eprintln!("final sum {}", sum);
+    // eprintln!("final sum {}", sum);
 }
 
 fn bench_serial_write_4k(c: &mut Criterion) {
