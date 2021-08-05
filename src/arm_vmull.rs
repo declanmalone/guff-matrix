@@ -817,18 +817,33 @@ impl Simd for VmullEngine8x8 {
 
     unsafe fn sum_across_n(lo : Self, hi : Self, n : usize, off : usize)
                            -> (Self::E, Self) {
-        let m = if off + n >= 8 { hi } else { lo };
-        let extracted = Self::extract_from_offset(&lo, &hi, off);
-        let masked = Self::mask_start_elements(extracted, n).into();
-        let result = Self::xor_across(masked);
+        // let m = if off + n >= 8 { hi } else { lo };
+        if off + n >= 8 {
+            let extracted = Self::extract_from_offset(&lo, &hi, off);
+            let masked = Self::mask_start_elements(extracted, n).into();
+            let result = Self::xor_across(masked);
 
-        // eprintln!("Got lo: {:x?}, hi: {:x?}, n: {}, off: {}",
-        //        lo.vec, hi.vec, n, off);
-        // eprintln!("extracted: {:x?}", extracted.vec);
-        // eprintln!("masked: {:x?}", masked.vec);
-        // eprintln!("xor result: {:x}", result);
+            // eprintln!("Got lo: {:x?}, hi: {:x?}, n: {}, off: {}",
+            //        lo.vec, hi.vec, n, off);
+            // eprintln!("extracted: {:x?}", extracted.vec);
+            // eprintln!("masked: {:x?}", masked.vec);
+            // eprintln!("xor result: {:x}", result);
 
-        ( result, m )
+            ( result, hi )
+        } else {
+            let extracted = Self::extract_from_offset(&lo, &hi, off);
+            let masked = Self::mask_start_elements(extracted, n).into();
+            let result = Self::xor_across(masked);
+
+            // eprintln!("Got lo: {:x?}, hi: {:x?}, n: {}, off: {}",
+            //        lo.vec, hi.vec, n, off);
+            // eprintln!("extracted: {:x?}", extracted.vec);
+            // eprintln!("masked: {:x?}", masked.vec);
+            // eprintln!("xor result: {:x}", result);
+
+            ( result, lo )
+
+        }
     }
 
 }

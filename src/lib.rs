@@ -604,6 +604,10 @@ where S::E : Copy + Zero + One, G : GaloisField {
     let mut total_dps = 0;
     let target = n * c;         // number of dot products
 
+    // Be agnostic about layout
+    let right = if output.is_rowwise() { 1 } else { n };
+    let down  = if output.is_rowwise() { c } else { 1 };
+
     while total_dps < target {
 
         // at top of loop we should always have m0, m1 full
@@ -680,7 +684,8 @@ where S::E : Copy + Zero + One, G : GaloisField {
         // eprintln!("Sum: {}", sum);
 
         // handle writing and incrementing or, oc
-        let write_index = output.rowcol_to_index(or,oc);
+        // let write_index = output.rowcol_to_index(or,oc);
+        let write_index = or * down + oc * right;
         output.indexed_write(write_index,sum);
         or = if or + 1 < orows { or + 1 } else { 0 };
         oc = if oc + 1 < ocols { oc + 1 } else { 0 };
@@ -796,6 +801,10 @@ where S::E : Copy + Zero + One, G : GaloisField {
     let mut total_dps = 0;
     let target = n * c;         // number of dot products
 
+    // Be agnostic about layout
+    let right = if output.is_rowwise() { 1 } else { n };
+    let down  = if output.is_rowwise() { c } else { 1 };
+
     while total_dps < target {
 
         // at top of loop we should always have m0, m1 full
@@ -876,7 +885,7 @@ where S::E : Copy + Zero + One, G : GaloisField {
         // eprintln!("Sum: {}", sum);
 
         // handle writing and incrementing or, oc
-        let write_index = output.rowcol_to_index(or,oc);
+        let write_index = or * down + oc * right;
         output.indexed_write(write_index,sum);
         or = if or + 1 < orows { or + 1 } else { 0 };
         oc = if oc + 1 < ocols { oc + 1 } else { 0 };
