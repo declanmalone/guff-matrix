@@ -831,18 +831,24 @@ impl Simd for VmullEngine8x8 {
 
             ( result, hi )
         } else {
-            let extracted = Self::extract_from_offset(&lo, &hi, off);
-            let masked = Self::mask_start_elements(extracted, n).into();
-            let result = Self::xor_across(masked);
+
+            // can use left and right shifts, which might be more
+            // efficient
+            let mut bytes = lo;
+            if off > 0 {
+                bytes = Self::shift_right(bytes, off);
+            }
+            if n < 8 {
+                bytes = Self::shift_left(bytes, 8 - n);
+            }
+
+            (Self::xor_across(bytes),lo)
 
             // eprintln!("Got lo: {:x?}, hi: {:x?}, n: {}, off: {}",
             //        lo.vec, hi.vec, n, off);
             // eprintln!("extracted: {:x?}", extracted.vec);
             // eprintln!("masked: {:x?}", masked.vec);
             // eprintln!("xor result: {:x}", result);
-
-            ( result, lo )
-
         }
     }
 
