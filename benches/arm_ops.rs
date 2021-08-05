@@ -11,6 +11,10 @@ pub mod arm_ops {
     use guff_matrix::*;
     use guff_matrix::arm_vmull::*;
 
+    use criterion::{black_box, criterion_group, criterion_main, Criterion};
+    use criterion::BenchmarkId;
+
+
     fn ref_gf8_vec(size : usize) {
         let av = vec![0x53u8; size];
         let bv = vec![0xcau8; size];
