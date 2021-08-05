@@ -55,8 +55,8 @@ pub use arm_ops::*;
 #[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), feature = "arm_vmull"))]
 criterion_group!(benches,
                  // 0.1.13
-                 bench_ref_gf8_vec,
-                 bench_simd_gf8_vec,
+                 arm_ops::bench_ref_gf8_vec,
+                 arm_ops::bench_simd_gf8_vec,
 );
 
 fn dummy(c: &mut Criterion) {
