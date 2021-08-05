@@ -1060,6 +1060,27 @@ impl SimdMatrix<VmullEngine8x8,F8> for ArmMatrix<VmullEngine8x8> {
 }
 
 
+// Aligned reads mean that we have to take care of readahead and our
+// wrapping code gets messy.
+//
+// Implement some low-level functions that can be used to test and
+// benchmark doing wrap-around reads with non-aligned memory
+// addresses.
+//
+// ARM NEON doesn't seem to have separate aligned/non-aligned
+// load/store instructions, so we just use the regular ones.
+
+
+// I'm not sure if there's a difference between using a purely
+// functional style and mutable args. I'll try both and see what the
+// benchmarks tell me.
+
+fn nar_read_next_tuple(index : usize, ) {
+
+
+}
+
+
 
 
 #[cfg(test)]

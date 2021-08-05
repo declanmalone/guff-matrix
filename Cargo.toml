@@ -18,6 +18,10 @@ criterion = "0.3"
 name = "vector_mul"
 harness = false
 
+[[bench]]
+name = "arm_ops"
+harness = false
+
 [profile.release]
 debug = true
 
