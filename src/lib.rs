@@ -1326,18 +1326,13 @@ mod tests {
             for n in 4..17 {
                 eprintln!("testing n={}, k={}", n, k);
                 unsafe {
-                    let mut transform = // mut because of iterator
-                        Matrix
-                        ::new(n,k,true);
-                    let mut input =
-                        Matrix
-                        ::new(k,cols,false);
+                    let mut transform = Matrix::new(n,k,true);
+                    let mut input = Matrix::new(k,cols,false);
 
                     transform.fill(&(1u8..).take(n*k).collect::<Vec<u8>>()[..]);
                     input.fill(&(1u8..).take(k*cols).collect::<Vec<u8>>()[..]);
 
                     let mut new_output = Matrix::new(n,cols,true);
-
                     let mut old_output = Matrix::new(n,cols,true);
 
                     // do multiply both ways

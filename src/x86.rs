@@ -754,12 +754,16 @@ impl Simd for X86u8x16Long0x11b {
 
                 if have_bytes == 0 {
                     reg1 = new
-                } else {   
+                } else {
+                    
                     // append part of new stream to reg1
                     // eprintln!("combining reg1 {:x?}, new {:x?}",
                     // reg1.vec, new.vec);
+
+                    // new: no need to combine since data wraps around
                     reg1 = X86u8x16Long0x11b
                         ::combine_bytes(reg1, new, have_bytes);
+                    
                 }
                 // eprintln!("new reg1 {:x?}", reg1.vec);
 
@@ -860,6 +864,12 @@ impl X86Matrix<X86u8x16Long0x11b> {
             data.len(), size);
         }
         self.array[0..size].copy_from_slice(data);
+        // make read-around work:
+        let mut index = size;
+        while index <  15 {
+            self.array[size + index] = data[index % size];
+            index += 1;
+        }
     }
 
     pub fn new_with_data(rows : usize, cols : usize, is_rowwise : bool,

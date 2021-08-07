@@ -602,14 +602,23 @@ impl Simd for VmullEngine8x8 {
             // eprintln!("*array_index < size");
 
             // start with the easiest (and most common) case:
-            if *ra_size > 0 {
-                // combine ra + r0.
+            if false {
+                if *ra_size > 0 {
+                    // combine ra + r0.
+                    result = Self
+                    // ::extract_from_offset(&ra, &r0, 8 - *ra_size);
+                        ::extract_using_mask(&ra, &r0, &*mask);
+                } else {
+                    // else all 8 bytes come from r0
+                    result = r0;
+                }
+            } else {
+                
+                // always call intrinsic
                 result = Self
                 // ::extract_from_offset(&ra, &r0, 8 - *ra_size);
                     ::extract_using_mask(&ra, &r0, &*mask);
-            } else {
-                // else all 8 bytes come from r0
-                result = r0;
+
             }
             new_ra = r0;
 
@@ -654,6 +663,11 @@ impl Simd for VmullEngine8x8 {
             // Obviously new readahead size calculations will be
             // different for each.
 
+
+            // Rework: repeat elements from the start of the matrix
+            // after its end. This eliminates the need to combine
+            // bytes read from the end of the stream and the start.
+            
             if available < 8 {
 
                 // eprintln!("*array_index >= size && available < 8");
@@ -673,32 +687,63 @@ impl Simd for VmullEngine8x8 {
 
                 let new_mask = Self::extract_mask_from_offset(8 - available);
 
-                if *ra_size > 0 {
+                if false {
+                    if *ra_size > 0 {
 
-                    // Combine ra and r0
+                        /* old code
+                        panic!();
+                        // Combine ra and r0
 
-                    // ra is already in top, so extract_from_offset
-                    // works fine with r0
-
-                    r0 = Self
+                        // ra is already in top, so extract_from_offset
+                        // works fine with r0
+                        
+                        r0 = Self
                         //::extract_from_offset(&ra, &r0, 8 - *ra_size);
                         ::extract_using_mask(&ra, &r0, &*mask);
 
-                    // now we have available bytes in r0, so to use
-                    // extract_from_offset again with r0, r1, we have
-                    // to move those bytes to the top
-                    r0 = Self::shift_left(r0, 8 - available);
-                    result = Self::extract_using_mask(&r0, &r1, &new_mask);
+                        // now we have available bytes in r0, so to use
+                        // extract_from_offset again with r0, r1, we have
+                        // to move those bytes to the top
+                        r0 = Self::shift_left(r0, 8 - available);
+                        result = Self::extract_using_mask(&r0, &r1, &new_mask);
 
-                    // r1 already has its bytes in the right place (at top)
-                    new_ra = r1;                    
+                        // r1 already has its bytes in the right place (at top)
+                        new_ra = r1;                    
 
+                         */
+
+                        // new code
+
+                        // still have to combine ra, r0
+                        r0 = Self
+                        //::extract_from_offset(&ra, &r0, 8 - *ra_size);
+                            ::extract_using_mask(&ra, &r0, &*mask);
+
+                        // but no shift/extract to combine r0, r1
+                        result = r0;
+                        new_ra = r1
+
+                    } else {
+
+                        /*
+                        // no readahead, so just combine bytes of r0, r1
+                        r0 = Self::shift_left(r0, 8 - available);
+                        result = Self::extract_using_mask(&r0, &r1, &new_mask);
+                        new_ra = r1;
+                         */
+
+                        // again, no need to combine r0, r1
+                        result = r0;
+                        new_ra = r1;
+                    }
                 } else {
+                        r0 = Self
+                        //::extract_from_offset(&ra, &r0, 8 - *ra_size);
+                            ::extract_using_mask(&ra, &r0, &*mask);
 
-                    // no readahead, so just combine bytes of r0, r1
-                    r0 = Self::shift_left(r0, 8 - available);
-                    result = Self::extract_using_mask(&r0, &r1, &new_mask);
-                    new_ra = r1;
+                        // but no shift/extract to combine r0, r1
+                        result = r0;
+                        new_ra = r1
                 }
                 *mask = new_mask;
 
@@ -716,29 +761,39 @@ impl Simd for VmullEngine8x8 {
                 // them to the top as new ra
 
                 // last bug (until the next one):
-                
-                if new_ra_size > 0 {
-                    // new_ra = Self::shift_left(r0,8 - *ra_size);
-                    new_ra = Self::shift_left(r0,8 - available_at_end);
+
+                if false {
+                    if new_ra_size > 0 {
+                        // new_ra = Self::shift_left(r0,8 - *ra_size);
+                        new_ra = Self::shift_left(r0,8 - available_at_end);
+                    } else {
+                        // value is junk, so we don't need to write
+                        new_ra = r0; // keep compiler happy
+                    }
                 } else {
-                    // value is junk, so we don't need to write
-                    new_ra = r0; // keep compiler happy
-                }
+                    new_ra = Self::shift_left(r0,8 - available_at_end);
+                }                    
 
                 // here, too, we check whether we have readahead and
                 // do different register ops depending
-                if *ra_size > 0 {
-                    // combine ra + r0.
+                if false {
+                    if *ra_size > 0 {
+                        // combine ra + r0.
+                        result = Self
+                        // ::extract_from_offset(&ra, &r0, 8 - *ra_size);
+                            ::extract_using_mask(&ra, &r0, &*mask);
+                    } else {
+                        // else all 8 bytes come from r0
+                        result = r0;
+                    }
+                } else {
                     result = Self
                     // ::extract_from_offset(&ra, &r0, 8 - *ra_size);
                         ::extract_using_mask(&ra, &r0, &*mask);
-                } else {
-                    // else all 8 bytes come from r0
-                    result = r0;
+
                 }
                 *mask = Self::extract_mask_from_offset(8 - new_ra_size);
             }
-            
         }
 
         // save updated variables
@@ -1031,6 +1086,12 @@ impl ArmMatrix<VmullEngine8x8> {
             data.len(), size);
         }
         self.array[0..size].copy_from_slice(data);
+        // make read-around work:
+        let mut index = 0;
+        while index <  7 {
+            self.array[size + index] = data[index % size];
+            index += 1;
+        }
     }
 
     pub fn new_with_data(rows : usize, cols : usize, is_rowwise : bool,
