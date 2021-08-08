@@ -10,6 +10,17 @@ use std::mem::transmute;
 
 use crate::*;
 
+// TODO:
+//
+// define some things as macros so that, eg, we can implement
+// in-register storage of matrix contents.
+//
+// * Different types of masks
+// * in-register storage of matrix
+// * constants for lookup tables
+//
+// 
+
 #[derive(Debug,Copy,Clone)]
 pub struct VmullEngine8x8 {
     // using uint8x8_t rather than poly8x8_t since it involves less
@@ -29,6 +40,15 @@ impl VmullEngine8x8 {
     //  vld1_u8(ptr)
     // }
 
+    // Keep values to be summed in vector for as long as possible
+    fn add_vectors(a : Self, b : self) -> Self {
+        unsafe {
+            let a : uint64x1_t = vreinterpret_u64_u8(a.vec);
+            let b : uint64x1_t = vreinterpret_u64_u8(a.vec);
+            vreinterpret_u8_u64(veor_u64(a, b)).into()
+        }
+    }
+    
     unsafe fn xor_across(v : Self) -> u8 {
         let mut v : uint64x1_t = vreinterpret_u64_u8(v.vec);
         // it seems that n is bits? No. Bytes. No, it's bits after all.
@@ -877,9 +897,9 @@ impl Simd for VmullEngine8x8 {
         // can use left and right shifts, which might be more
         // efficient
         let mut bytes = lo;
-        if off > 0 {
+        // if off > 0 {
             bytes = Self::shift_right(bytes, off);
-        }
+        //}
         if off + n >= 8 {
             // let extracted = Self::extract_from_offset(&lo, &hi, off);
             // let masked = Self::mask_start_elements(extracted, n).into();
@@ -901,9 +921,9 @@ impl Simd for VmullEngine8x8 {
             ( Self::xor_across(bytes), hi )
         } else {
 
-            if n < 8 {
+            // if n < 8 {
                 bytes = Self::shift_left(bytes, 8 - n);
-            }
+            // }
 
             (Self::xor_across(bytes),lo)
 

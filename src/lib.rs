@@ -614,6 +614,9 @@ where S::E : Copy + Zero + One, G : GaloisField {
 
         // apportion parts of m0,m1 to sum
 
+        // Change: instead of doing sum-across every time we read in a
+        // full simd, xor the vector with the new values
+
         // handle case where k >= simd_width
         while dp_counter + simd_width <= k {
             let (part, new_m)
