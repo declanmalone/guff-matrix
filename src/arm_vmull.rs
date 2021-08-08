@@ -41,10 +41,10 @@ impl VmullEngine8x8 {
     // }
 
     // Keep values to be summed in vector for as long as possible
-    fn add_vectors(a : Self, b : self) -> Self {
+    fn add_vectors(a : Self, b : Self) -> Self {
         unsafe {
             let a : uint64x1_t = vreinterpret_u64_u8(a.vec);
-            let b : uint64x1_t = vreinterpret_u64_u8(a.vec);
+            let b : uint64x1_t = vreinterpret_u64_u8(b.vec);
             vreinterpret_u8_u64(veor_u64(a, b)).into()
         }
     }
