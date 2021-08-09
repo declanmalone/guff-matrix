@@ -1366,7 +1366,7 @@ impl Simd for VmullEngine8x8 {
         
     }
 
-    // #[inline(always)]
+    #[inline(always)]
     unsafe fn read_next_with_mask(mod_index : &mut usize,
                                   array_index : &mut usize,
                                   array     : &[Self::E],
