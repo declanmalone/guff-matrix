@@ -195,7 +195,41 @@ pub fn update_apportion_mask(mask : VmullEngine8x8, k : isize)
     }
 }
 
-pub fn arm_matrix_mul_<S : Simd<E=G::E> + Copy, G>(
+// switcher/despatcher based on k <=> simd width
+//
+// later on, I will probably add more special cases where the
+// transform matrix can fit into 1--4 simd registers
+pub fn arm_simd_matrix_mul<S : Simd<E=G::E> + Copy, G>(
+    xform  : &mut impl SimdMatrix<S,G>,
+    input  : &mut impl SimdMatrix<S,G>,
+    output : &mut impl SimdMatrix<S,G>)
+where S::E : Copy + Zero + One, G : GaloisField
+{
+    let n = xform.rows();
+    if n > 1 {
+        let denominator = gcd(n,c);
+        debug_assert_ne!(n, denominator);
+        debug_assert_ne!(c, denominator);
+    }
+
+    if k & 7 == 0 {
+        arm_matrix_mul_k_multiple_simd(&mut xform,
+                                       &mut input,
+                                       &mut output)
+    }
+    if k > 8 {
+        arm_matrix_mul_k_gt_simd(&mut xform,
+                                 &mut input,
+                                 &mut output)
+    } else {
+        arm_matrix_mul_k_lt_simd(&mut xform,
+                                 &mut input,
+                                 &mut output)
+    }
+}
+
+// special case where k is a multiple of simd
+fn arm_matrix_mul_k_multiple_simd<S : Simd<E=G::E> + Copy, G>(
     xform  : &mut impl SimdMatrix<S,G>,
     input  : &mut impl SimdMatrix<S,G>,
     output : &mut impl SimdMatrix<S,G>)
@@ -206,6 +240,9 @@ where S::E : Copy + Zero + One, G : GaloisField {
     let n = xform.rows();
     let k = xform.cols();
 
+    // isn't a pub fn, so debug_assert is OK
+    debug_assert!(k & 7 == 0);
+
     // regular asserts, since they check user-supplied vars
     assert!(k > 0);
     assert!(n > 0);
@@ -213,22 +250,13 @@ where S::E : Copy + Zero + One, G : GaloisField {
     assert_eq!(input.rows(), k);
     assert_eq!(output.cols(), c);
     assert_eq!(output.rows(), n);
-
-    // searching for prime factors ... needs more work?
-    // use debug_assert since division is often costly
-    if n > 1 {
-        let denominator = gcd(n,c);
-        debug_assert_ne!(n, denominator);
-        debug_assert_ne!(c, denominator);
-    }
     
     // algorithm not so trivial any more, but still quite simple
     let mut dp_counter  = 0;
     // let mut sum         = S::zero_element();
     let zero = S::zero_vector();
     let mut sum_vector  = zero;
-    
-    
+
     let simd_width = S::SIMD_BYTES;
 
     // Code for read_next_with_mask() that was handled in SimdMatrix has now
@@ -255,45 +283,9 @@ where S::E : Copy + Zero + One, G : GaloisField {
     let orows = output.rows();
     let ocols = output.cols();
 
-    // read ahead two products
-
     let mut i0 : S;
     let mut x0 : S;
 
-    x0 = S::read_next_with_mask(&mut xform_mod_index,
-                      &mut xform_array_index,
-                      xform_array,
-                      xform_size,
-                      &mut xform_ra_size,
-                      &mut xform_ra,
-                      &mut xform_mask);
-    i0 = S::read_next_with_mask(&mut input_mod_index,
-                      &mut input_array_index,
-                      input_array,
-                      input_size,
-                      &mut input_ra_size,
-                      &mut input_ra,
-                      &mut input_mask);
-
-    let mut m0 = S::cross_product(x0,i0);
-
-    x0 = S::read_next_with_mask(&mut xform_mod_index,
-                      &mut xform_array_index,
-                      xform_array,
-                      xform_size,
-                      &mut xform_ra_size,
-                      &mut xform_ra,
-                      &mut xform_mask);
-    i0 = S::read_next_with_mask(&mut input_mod_index,
-                      &mut input_array_index,
-                      input_array,
-                      input_size,
-                      &mut input_ra_size,
-                      &mut input_ra,
-                      &mut input_mask);
-    let mut m1  = S::cross_product(x0,i0);
-
-    let mut offset_mod_simd = 0;
     let mut total_dps = 0;
     let target = n * c;         // number of dot products
 
@@ -303,22 +295,7 @@ where S::E : Copy + Zero + One, G : GaloisField {
 
     while total_dps < target {
 
-        // at top of loop we should always have m0, m1 full
-
-        // apportion parts of m0,m1 to sum
-
-        // handle case where k >= simd_width
-        while dp_counter + simd_width <= k {
-            // let (part, new_m)
-            // = S::sum_across_n(m0,m1,simd_width,offset_mod_simd);
-
-            let (part, new_m)                                       
-                = S::extract_elements(m0,m1,simd_width,offset_mod_simd);
-            sum_vector = S::sum_vectors(&sum_vector,&part);
-
-            m0 = new_m;
-            // x0  = xform.read_next_with_mask();
-            // i0  = input.read_next_with_mask();
+        while dp_counter < k {
             x0 = S::read_next_with_mask(&mut xform_mod_index,
                               &mut xform_array_index,
                               xform_array,
@@ -333,54 +310,11 @@ where S::E : Copy + Zero + One, G : GaloisField {
                               &mut input_ra_size,
                               &mut input_ra,
                               &mut input_mask);
-            m1  = S::cross_product(x0,i0); // new m1
+
+            m0  = S::cross_product(x0,i0);
+
+            sum_vector = S::sum_vectors(&sum_vector,&m0);
             dp_counter += simd_width;
-            // offset_mod_simd unchanged
-        }
-        // above may have set dp_counter to k already.
-        if dp_counter < k {            // If not, ...
-            let want = k - dp_counter; // always strictly positive
-
-            // eprintln!("Calling sum_across_n with m0 {:?}, m1 {:?}, n {}, offset {}",
-            //      m0.vec, m1.vec, want, offset_mod_simd);
-            // let (part, new_m) = S::sum_across_n(m0,m1,want,offset_mod_simd);
-
-            let (part, new_m) = S::extract_elements(m0,m1,want,offset_mod_simd);
-            
-            // eprintln!("got sum {}, new m {:?}", part, new_m.vec);
-
-            sum_vector = S::sum_vectors(&sum_vector,&part);
-            if offset_mod_simd + want >= simd_width {
-                // consumed m0 and maybe some of m1 too
-                m0 = new_m;     // nothing left in old m0, so m0 <- m1
-                // x0  = xform.read_next_with_mask();
-                // i0  = input.read_next_with_mask();
-                x0 = S::read_next_with_mask(&mut xform_mod_index,
-                                  &mut xform_array_index,
-                                  xform_array,
-                                  xform_size,
-                                  &mut xform_ra_size,
-                                  &mut xform_ra,
-                                  &mut xform_mask);
-                i0 = S::read_next_with_mask(&mut input_mod_index,
-                                  &mut input_array_index,
-                                  input_array,
-                                  input_size,
-                                  &mut input_ra_size,
-                                  &mut input_ra,
-                                  &mut input_mask);
-                m1  = S::cross_product(x0,i0); // new m1
-            } else {
-                // got what we needed from m0 but it still has some
-                // unused data left in it
-                m0 = new_m;
-                // no new m1
-            }
-            // offset calculation the same for both arms above
-            offset_mod_simd += want;
-            if offset_mod_simd >= simd_width {
-                offset_mod_simd -= simd_width
-            }
         }
 
         // sum now has a full dot product
@@ -810,211 +744,6 @@ where S::E : Copy + Zero + One, G : GaloisField {
     }
 }
 
-// special case where k is a multiple of simd
-pub fn arm_matrix_mul_special_k<S : Simd<E=G::E> + Copy, G>(
-    xform  : &mut impl SimdMatrix<S,G>,
-    input  : &mut impl SimdMatrix<S,G>,
-    output : &mut impl SimdMatrix<S,G>)
-where S::E : Copy + Zero + One, G : GaloisField {
-
-    // dimension tests
-    let c = input.cols();
-    let n = xform.rows();
-    let k = xform.cols();
-
-    // regular asserts, since they check user-supplied vars
-    assert!(k > 0);
-    assert!(n > 0);
-    assert!(c > 0);
-    assert_eq!(input.rows(), k);
-    assert_eq!(output.cols(), c);
-    assert_eq!(output.rows(), n);
-
-    // searching for prime factors ... needs more work?
-    // use debug_assert since division is often costly
-    if n > 1 {
-        let denominator = gcd(n,c);
-        debug_assert_ne!(n, denominator);
-        debug_assert_ne!(c, denominator);
-    }
-    
-    // algorithm not so trivial any more, but still quite simple
-    let mut dp_counter  = 0;
-    // let mut sum         = S::zero_element();
-    let zero = S::zero_vector();
-    let mut sum_vector  = zero;
-    
-    
-    let simd_width = S::SIMD_BYTES;
-
-    // Code for read_next_with_mask() that was handled in SimdMatrix has now
-    // moved to Simd. We need to track those variables here.
-    let mut xform_mod_index = 0;
-    let mut xform_array_index = 0;
-    let     xform_array = xform.as_slice();
-    let     xform_size  = xform.size();
-    let mut xform_ra_size = 0;
-    let mut xform_ra = zero;
-    let mut xform_mask = S::starting_mask();
-
-    let mut input_mod_index = 0;
-    let mut input_array_index = 0;
-    let     input_array = input.as_slice();
-    let     input_size  = input.size();
-    let mut input_ra_size = 0;
-    let mut input_ra = zero;
-    let mut input_mask = S::starting_mask();
-
-    // we handle or and oc (was in matrix class)
-    let mut or : usize = 0;
-    let mut oc : usize = 0;
-    let orows = output.rows();
-    let ocols = output.cols();
-
-    // read ahead two products
-
-    let mut i0 : S;
-    let mut x0 : S;
-
-    x0 = S::read_next_with_mask(&mut xform_mod_index,
-                      &mut xform_array_index,
-                      xform_array,
-                      xform_size,
-                      &mut xform_ra_size,
-                      &mut xform_ra,
-                      &mut xform_mask);
-    i0 = S::read_next_with_mask(&mut input_mod_index,
-                      &mut input_array_index,
-                      input_array,
-                      input_size,
-                      &mut input_ra_size,
-                      &mut input_ra,
-                      &mut input_mask);
-
-    let mut m0 = S::cross_product(x0,i0);
-
-    x0 = S::read_next_with_mask(&mut xform_mod_index,
-                      &mut xform_array_index,
-                      xform_array,
-                      xform_size,
-                      &mut xform_ra_size,
-                      &mut xform_ra,
-                      &mut xform_mask);
-    i0 = S::read_next_with_mask(&mut input_mod_index,
-                      &mut input_array_index,
-                      input_array,
-                      input_size,
-                      &mut input_ra_size,
-                      &mut input_ra,
-                      &mut input_mask);
-    let mut m1  = S::cross_product(x0,i0);
-
-    let mut offset_mod_simd = 0;
-    let mut total_dps = 0;
-    let target = n * c;         // number of dot products
-
-    // Be agnostic about layout
-    let right = if output.is_rowwise() { 1 } else { n };
-    let down  = if output.is_rowwise() { c } else { 1 };
-
-    while total_dps < target {
-
-        // at top of loop we should always have m0, m1 full
-
-        // apportion parts of m0,m1 to sum
-
-        // handle case where k >= simd_width
-        while dp_counter + simd_width <= k {
-            // let (part, new_m)
-            // = S::sum_across_n(m0,m1,simd_width,offset_mod_simd);
-
-            let (part, new_m)                                       
-                = S::extract_elements(m0,m1,simd_width,offset_mod_simd);
-            sum_vector = S::sum_vectors(&sum_vector,&part);
-
-            m0 = new_m;
-            // x0  = xform.read_next_with_mask();
-            // i0  = input.read_next_with_mask();
-            x0 = S::read_next_with_mask(&mut xform_mod_index,
-                              &mut xform_array_index,
-                              xform_array,
-                              xform_size,
-                              &mut xform_ra_size,
-                              &mut xform_ra,
-                              &mut xform_mask);
-            i0 = S::read_next_with_mask(&mut input_mod_index,
-                              &mut input_array_index,
-                              input_array,
-                              input_size,
-                              &mut input_ra_size,
-                              &mut input_ra,
-                              &mut input_mask);
-            m1  = S::cross_product(x0,i0); // new m1
-            dp_counter += simd_width;
-            // offset_mod_simd unchanged
-        }
-        // above may have set dp_counter to k already.
-        if dp_counter < k {            // If not, ...
-            let want = k - dp_counter; // always strictly positive
-
-            // eprintln!("Calling sum_across_n with m0 {:?}, m1 {:?}, n {}, offset {}",
-            //      m0.vec, m1.vec, want, offset_mod_simd);
-            // let (part, new_m) = S::sum_across_n(m0,m1,want,offset_mod_simd);
-
-            let (part, new_m) = S::extract_elements(m0,m1,want,offset_mod_simd);
-            
-            // eprintln!("got sum {}, new m {:?}", part, new_m.vec);
-
-            sum_vector = S::sum_vectors(&sum_vector,&part);
-            if offset_mod_simd + want >= simd_width {
-                // consumed m0 and maybe some of m1 too
-                m0 = new_m;     // nothing left in old m0, so m0 <- m1
-                // x0  = xform.read_next_with_mask();
-                // i0  = input.read_next_with_mask();
-                x0 = S::read_next_with_mask(&mut xform_mod_index,
-                                  &mut xform_array_index,
-                                  xform_array,
-                                  xform_size,
-                                  &mut xform_ra_size,
-                                  &mut xform_ra,
-                                  &mut xform_mask);
-                i0 = S::read_next_with_mask(&mut input_mod_index,
-                                  &mut input_array_index,
-                                  input_array,
-                                  input_size,
-                                  &mut input_ra_size,
-                                  &mut input_ra,
-                                  &mut input_mask);
-                m1  = S::cross_product(x0,i0); // new m1
-            } else {
-                // got what we needed from m0 but it still has some
-                // unused data left in it
-                m0 = new_m;
-                // no new m1
-            }
-            // offset calculation the same for both arms above
-            offset_mod_simd += want;
-            if offset_mod_simd >= simd_width {
-                offset_mod_simd -= simd_width
-            }
-        }
-
-        // sum now has a full dot product
-        // eprintln!("Sum: {}", sum);
-
-        let sum = S::sum_across_simd(sum_vector);
-
-        // handle writing and incrementing or, oc
-        let write_index = or * down + oc * right;
-        output.indexed_write(write_index,sum);
-        or = if or + 1 < orows { or + 1 } else { 0 };
-        oc = if oc + 1 < ocols { oc + 1 } else { 0 };
-
-        sum_vector = zero;
-        dp_counter = 0;
-        total_dps += 1;
-    }
-}
 
 
 
