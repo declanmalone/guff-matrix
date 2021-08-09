@@ -160,11 +160,103 @@ pub mod arm_ops {
     }
 
 
+    // Now that I have new matrix code in arm_vmull, I have to bench
+    // it here.
+
+    // case where xform's k is a multiple of simd width
+    // choose 8 for the sake of benchmarking
+    fn arm_matrix_mul_multiple(cols : usize) {
+        unsafe {
+            let identity = [
+                1,0,0,0, 0,0,0,0,
+                0,1,0,0, 0,0,0,0,
+                0,0,1,0, 0,0,0,0,
+                0,0,0,1, 0,0,0,0,
+                0,0,0,0, 1,0,0,0,
+                0,0,0,0, 0,1,0,0,
+                0,0,0,0, 0,0,1,0,
+                0,0,0,0, 0,0,0,1,
+            ];
+            let transform = Matrix::new(8,8,true);
+            transform.fill(&identity[..]);
+
+            let mut input = Matrix::new(8,cols,false);
+
+            // create a vector with elements 1..255 repeating
+            let src : Vec<u8> = (1u8..=255).collect();
+            let iter = src.into_iter().cycle().take(8*cols);
+            let vec : Vec<u8> = iter.collect::<Vec<_>>();
+            
+            // let vec : Vec<u8> = (1u8..=9 * cols).collect();
+            input.fill(&vec[..]);
+
+            let mut output = Matrix::new(8,cols,false);
+
+            // works if output is stored in colwise format
+            new_simd_warm_multiply(&mut transform, &mut input, &mut output);
+            // array has padding, so don't compare that
+            assert_eq!(output.array[0..8*cols], vec);
+        }
+    }
+
+    fn bench_arm_matrix_mul_16385(c: &mut Criterion) {
+    c.bench_function("arm matrix mul multiple 9x16385",
+                     |b| b.iter(|| arm_matrix_mul_multiple(16385)));
+    }
+
+    // Compare with reference mul of same dimensions
+    fn ref_matrix_mul_multiple(cols : usize) {
+
+        let f = new_gf8(0x11b, 0x1b);
+        let identity = [
+                1,0,0,0, 0,0,0,0,
+                0,1,0,0, 0,0,0,0,
+                0,0,1,0, 0,0,0,0,
+                0,0,0,1, 0,0,0,0,
+                0,0,0,0, 1,0,0,0,
+                0,0,0,0, 0,1,0,0,
+                0,0,0,0, 0,0,1,0,
+                0,0,0,0, 0,0,0,1,
+        ];
+        let mut xform = Matrix::new(8,8,true);
+        xform.fill(&identity[..]);
+
+        let mut input = Matrix::new(8,cols,false);
+
+        // create a vector with elements 1..255 repeating
+        let src : Vec<u8> = (1u8..=255).collect();
+        let iter = src.into_iter().cycle().take(8*cols);
+        let vec : Vec<u8> = iter.collect::<Vec<_>>();
+        // eprintln!("Vector length is {}", vec.len());
+
+        //      let vec : Vec<u8> = (1u8..=9 * 17).collect();
+        input.fill(&vec[..]);
+
+        // output layout does matter for final assert!()
+        let mut output = Matrix::new(8,cols, false);
+
+
+        // code that was here moved into fn in main module
+        
+        reference_matrix_multiply(&mut xform, &mut input, &mut output, &f);
+        
+        // array has padding, so don't compare that
+        assert_eq!(output.array[0..9*cols], vec);
+
+    }
+
+    fn bench_ref_gf8_matrix_mul_16385(c: &mut Criterion) {
+        c.bench_function("ref matrix mul multiple 9x16385",
+                         |b| b.iter(|| ref_matrix_mul_multiple(16385)));
+    }
+
 }
 
 // bring the above into scope
 #[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), feature = "arm_vmull"))]
 pub use arm_ops::*;
+
+
 
 // and then run the benchmarks
 #[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), feature = "arm_vmull"))]
@@ -179,9 +271,12 @@ criterion_group!(benches,
                  bench_nar_tuple_64k,
 //                 bench_nar_mut_64k,
                  bench_aligned_read_64k,
-                 dummy,
+                 bench_ref_gf8_matrix_mul_16385,
+                 bench_arm_gf8_matrix_mul_16385,
+                 
 );
 
+#[allow(unused)]
 fn dummy(_c: &mut Criterion) {
         
 }
