@@ -310,7 +310,7 @@ where S::E : Copy + Zero + One, G : GaloisField,
 
             if false {
                 let addr = xform_array.as_ptr()
-                    .offset(xform_mod_index) as *const u8;
+                    .offset(xform_mod_index as isize) as *const u8;
                 let read_ptr = xform_array.as_ptr()
                     .offset((xform_array_index) as isize);
                 x0 = S::read_simd(read_ptr as *const S::E).into();
