@@ -92,6 +92,7 @@ impl VmullEngine8x8 {
     //  vld1_u8(ptr)
     // }
 
+    #[allow(unused)]
     unsafe fn rotate_right(v : Self, amount : usize) -> Self {
         let mut mask = transmute( [0u8,1,2,3,4,5,6,7] ); // null rotate mask
         let add_amount = vmov_n_u8(amount as u8);
@@ -101,6 +102,7 @@ impl VmullEngine8x8 {
         vtbl1_u8(v.vec, mask).into()
     }
 
+    #[allow(unused)]
     unsafe fn rotate_left(v : Self, amount : usize) -> Self {
         Self::rotate_right(v, 8 - amount)
     }
@@ -154,15 +156,17 @@ impl VmullEngine8x8 {
     // create mask, called when starting off and *ra_size changes
     unsafe fn extract_mask_from_offset(offset : usize) -> Self {
         // debug_assert!(offset < 8);
-        let mut mask = transmute( [0u8,1,2,3,4,5,6,7] ); // null rotate mask
+        let mask = transmute( [0u8,1,2,3,4,5,6,7] ); // null rotate mask
         let add_amount = vmov_n_u8(offset as u8);
         vadd_u8(mask, add_amount).into()
     }
     
+    #[allow(unused)]
     unsafe fn splat(elem : u8) -> Self {
         vmov_n_u8(elem).into()
     }
     
+    #[allow(unused)]
     unsafe fn mask_start_elements(v : Self, count : usize) -> Self {
         debug_assert!(count > 0);
         let mask = Self::shift_right(Self::splat(0xff),
@@ -170,6 +174,7 @@ impl VmullEngine8x8 {
         vand_u8(v.vec, mask.vec).into() 
     }
     
+    #[allow(unused)]
     unsafe fn mask_end_elements(v : Self, count : usize) -> Self {
         debug_assert!(count > 0);
         let mask = Self::shift_left(Self::splat(0xff),
@@ -181,6 +186,7 @@ impl VmullEngine8x8 {
     // negative_mask_start_elements(v,x) would be the same as
     // mask_end_elements(v,8-x).
 
+    #[allow(unused)]
     unsafe fn non_wrapping_read(read_ptr :  *const u8,
                                 beyond   :  *const u8
     ) -> Option<Self> {
@@ -191,6 +197,7 @@ impl VmullEngine8x8 {
         }
     }
 
+    #[allow(unused)]
     unsafe fn wrapping_read(read_ptr : *const u8,
                             beyond   : *const u8,
                             restart  : *const u8
@@ -459,9 +466,9 @@ impl Simd for VmullEngine8x8 {
                         ra        : &mut Self)
                         -> Self {
 
-        let mut new_ra : Self; // = r0; // silence compiler
+        let new_ra : Self; // = r0; // silence compiler
         let mut new_mod_index = *mod_index;
-        let mut new_ra_size   = *ra_size;
+        let mut new_ra_size; //   = *ra_size;
 
         // Both should be OK, but it's safer to only look at
         // mod_index, since that only changes once per call and so is
@@ -491,12 +498,12 @@ impl Simd for VmullEngine8x8 {
 
         let result;
         // let mut have_r1 = false;
-        let mut r1; // = r0;                // silence compiler
+        let r1; // = r0;                // silence compiler
 
         // Check against array_index here because we've incremented
         // it. Could also check if available_at_end <= 8, which should
         // be the same thing.
-        let array_bool = *array_index >= size;
+        // let array_bool = *array_index >= size;
         // let avail_bool = available_at_end <= 8;
 
         // apparently not...
@@ -673,9 +680,9 @@ impl Simd for VmullEngine8x8 {
                                   mask : &mut Self)
                         -> Self {
 
-        let mut new_ra : Self; // = r0; // silence compiler
+        let new_ra : Self; // = r0; // silence compiler
         let mut new_mod_index = *mod_index;
-        let mut new_ra_size; //   = *ra_size;
+        let new_ra_size; //   = *ra_size;
 
         // Both should be OK, but it's safer to only look at
         // mod_index, since that only changes once per call and so is
@@ -704,14 +711,14 @@ impl Simd for VmullEngine8x8 {
         // eprintln!("Read r0: {:x?}", r0.vec);
 
         let result;
-        let mut have_r1 = false;
-        let mut r1 = r0;                // silence compiler
+        // let mut have_r1 = false;
+        let mut r1; // = r0; // silence compiler
 
         // Check against array_index here because we've incremented
         // it. Could also check if available_at_end <= 8, which should
         // be the same thing.
-        let array_bool = *array_index >= size;
-        let avail_bool = available_at_end <= 8;
+        // let array_bool = *array_index >= size;
+        // let avail_bool = available_at_end <= 8;
 
         // apparently not...
         // debug_assert_eq!(array_bool, avail_bool);
