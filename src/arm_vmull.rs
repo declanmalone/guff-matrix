@@ -999,9 +999,9 @@ impl Simd for VmullEngine8x8 {
         // can use left and right shifts, which might be more
         // efficient
         let mut bytes = lo;
-        // if off > 0 {
+        if off > 0 {
             bytes = Self::shift_right(bytes, off);
-        //}
+        }
         if off + n >= 8 {
             // let extracted = Self::extract_from_offset(&lo, &hi, off);
             // let masked = Self::mask_start_elements(extracted, n).into();
@@ -1023,9 +1023,9 @@ impl Simd for VmullEngine8x8 {
             ( Self::sum_across_simd(bytes), hi )
         } else {
 
-            // if n < 8 {
+            if n < 8 {
                 bytes = Self::shift_left(bytes, 8 - n);
-            // }
+            }
 
             (Self::sum_across_simd(bytes),lo)
 
