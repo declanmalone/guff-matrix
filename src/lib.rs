@@ -1391,7 +1391,7 @@ mod tests {
     #[test]
     fn test_arm_simd_k_multiple_conformance() {
         let cols = 19;
-        for k in [8,16,24].iter() {
+        for k in [8usize,16,24].cloned().iter() {
             for n in 4..17 {
                 eprintln!("testing n={}, k={}", n, k);
                 unsafe {
