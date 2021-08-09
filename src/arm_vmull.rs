@@ -309,15 +309,15 @@ where S::E : Copy + Zero + One, G : GaloisField,
             // reads, so no need to track readahead
 
             if false {
-                let addr = xform_array.as_ptr()
-                    .offset(xform_mod_index as isize) as *const u8;
-                let read_ptr = xform_array.as_ptr()
-                    .offset((xform_array_index) as isize);
-                x0 = S::read_simd(read_ptr as *const S::E).into();
-                xform_array_index += 8;
-                if xform_array_index == xform_size {
-                    xform_array_index = 0
-                }
+                // let addr = xform_array.as_ptr()
+                //     .offset(xform_mod_index as isize) as *const u8;
+                // let read_ptr = xform_array.as_ptr()
+                //     .offset((xform_array_index) as isize);
+                // x0 = S::read_simd(read_ptr as *const S::E).into();
+                // xform_array_index += 8;
+                // if xform_array_index == xform_size {
+                //     xform_array_index = 0
+                // }
             } else {
                 x0 = S::read_next_with_mask(&mut xform_mod_index,
                                             &mut xform_array_index,
