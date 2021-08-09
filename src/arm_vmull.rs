@@ -331,7 +331,7 @@ where S::E : Copy + Zero + One, G : GaloisField,
                 .offset(input_mod_index as isize) as *const u8;
             let read_ptr = input_array.as_ptr()
                 .offset((input_array_index) as isize);
-            x0 = S::read_simd(read_ptr as *const S::E).into();
+            i0 = S::read_simd(read_ptr as *const S::E).into();
             input_array_index += 8;
             if input_array_index == input_size {
                 input_array_index = 0
