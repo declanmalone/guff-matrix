@@ -86,6 +86,7 @@ fn _monomorph() {
 
     //    use crate::x86::*;
 
+    for k in [1,2,3].iter() { }
     #[inline(never)]
     fn inner_fn<S : Simd<E=u8> + Copy>(
         xform  : &mut impl SimdMatrix<S,F8>,
@@ -1390,7 +1391,7 @@ mod tests {
     #[test]
     fn test_arm_simd_k_multiple_conformance() {
         let cols = 19;
-        for k in (8,16,24) {
+        for k in [8,16,24].iter() {
             for n in 4..17 {
                 eprintln!("testing n={}, k={}", n, k);
                 unsafe {
