@@ -193,7 +193,8 @@ pub mod arm_ops {
             let mut output = Matrix::new(8,cols,false);
 
             // works if output is stored in colwise format
-            new_simd_warm_multiply(&mut transform, &mut input, &mut output);
+            arm_vmull::arm_simd_matrix_mul(
+                &mut transform, &mut input, &mut output);
             // array has padding, so don't compare that
             assert_eq!(output.array[0..8*cols], vec);
         }

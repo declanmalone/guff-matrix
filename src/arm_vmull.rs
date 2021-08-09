@@ -300,6 +300,10 @@ where S::E : Copy + Zero + One, G : GaloisField {
     while total_dps < target {
 
         while dp_counter < k {
+
+            // TODO: avail of the fact that there are no straddling
+            // reads, so no need to track readahead
+            
             x0 = S::read_next_with_mask(&mut xform_mod_index,
                               &mut xform_array_index,
                               xform_array,
