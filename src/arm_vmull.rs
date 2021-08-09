@@ -468,7 +468,7 @@ impl Simd for VmullEngine8x8 {
 
         let new_ra : Self; // = r0; // silence compiler
         let mut new_mod_index = *mod_index;
-        let mut new_ra_size; //   = *ra_size;
+        let new_ra_size; //   = *ra_size;
 
         // Both should be OK, but it's safer to only look at
         // mod_index, since that only changes once per call and so is
@@ -712,7 +712,7 @@ impl Simd for VmullEngine8x8 {
 
         let result;
         // let mut have_r1 = false;
-        let mut r1; // = r0; // silence compiler
+        let r1; // = r0; // silence compiler
 
         // Check against array_index here because we've incremented
         // it. Could also check if available_at_end <= 8, which should
@@ -1348,7 +1348,7 @@ mod tests {
             a = transmute ( a_array );
             b = transmute ( b_array );
         }
-        let mut r : poly8x8_t;
+        let mut _r : poly8x8_t;
 
         let mut result : Vec<u8> = vec![0;8];
 
@@ -1628,8 +1628,8 @@ mod tests {
         let mut check = (0u8..24).cycle();
         let mut check_vec = [0u8; 8];
         let addr = check_vec.as_ptr();
-        let old_mod_index = 0;
-        for i in 0..42 {
+        let _old_mod_index = 0;
+        for _ in 0..42 {
             unsafe {
                 // isn't there a quicker way to take 8 elements? Can't use
                 // check.chunks()
@@ -1678,8 +1678,8 @@ mod tests {
         let mut check = (0u8..21).cycle();
         let mut check_vec = [0u8; 8];
         let addr = check_vec.as_ptr();
-        let old_mod_index = 0;
-        for i in 0..42 {
+        let _old_mod_index = 0;
+        for _ in 0..42 {
             unsafe {
                 // isn't there a quicker way to take 8 elements? Can't use
                 // check.chunks()
@@ -1719,8 +1719,8 @@ mod tests {
             // convert 
             let a0 = VmullEngine8x8::read_simd(a0.as_ptr());
             let a1 = VmullEngine8x8::read_simd(a1.as_ptr());
-            let a2 = VmullEngine8x8::read_simd(a2.as_ptr());
-            let a3 = VmullEngine8x8::read_simd(a3.as_ptr());
+            let _a2 = VmullEngine8x8::read_simd(a2.as_ptr());
+            let _a3 = VmullEngine8x8::read_simd(a3.as_ptr());
 
             // simplest case 
             let (sum,_new_m) = VmullEngine8x8::sum_across_n(a0, a1, 8, 0);
@@ -1783,43 +1783,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_new_sum_across_n() {
-        // first byte of av is stored in lowest memory location
-        let a0 = [ 0u8,   1,  2,  4,  8, 16, 32,  64, ];
-        let a1 = [ 128u8, 0,  1,  2,  4,  8, 16,  32, ];
-        let a2 = [ 1u8,   2,  4,  8, 16, 32, 64, 128, ];
-        let a3 = [ 0u8,   1,  2,  4,  8, 16, 32,  64, ];
-
-        unsafe {
-
-            // av[0] goes into low byte of lo
-            let lo = VmullEngine8x8::read_simd(a0.as_ptr());
-            let hi = VmullEngine8x8::read_simd(a1.as_ptr());
-
-            /*
-            // try different offsets
-            
-            let (sum,_new_m)
-                = X86u8x16Long0x11b::sum_across_n(lo, hi, 16, 3);
-            let expect : u8 = 0b1111_1101 ^ 0b0011_1001;
-            eprintln!("expect {:x}", expect);
-            assert_eq!(sum, expect);
-
-            let (sum,_new_m)
-                = X86u8x16Long0x11b::sum_across_n(lo, hi, 1, 3);
-            let expect : u8 = 4;
-            eprintln!("expect {:x}", expect);
-            assert_eq!(sum, expect);
-
-            let (sum,_new_m)
-                = X86u8x16Long0x11b::sum_across_n(lo, hi, 2, 3);
-            let expect : u8 = 4 + 8;
-            eprintln!("expect {:x}", expect);
-            assert_eq!(sum, expect);
-             */
-        }
-    }
 
     #[test]
     fn test_read_next_vs_nars() {

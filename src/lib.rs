@@ -454,7 +454,7 @@ where Self : Sized, S::E : PartialEq + Copy + Zero + One,
             let source_slice = &mat.as_slice()[index  .. index + rowsize];
             eprintln!("source_slice has length {}", source_slice.len());
 
-            &source_row[..].copy_from_slice(source_slice);
+            (&source_row[..]).copy_from_slice(source_slice);
 
             eprintln!("source_row is {:x?}", source_row);
             
