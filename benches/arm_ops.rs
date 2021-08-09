@@ -1,18 +1,18 @@
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use criterion::BenchmarkId;
+use criterion::{criterion_group, criterion_main, Criterion};
+// use criterion::{black_box};
+// use criterion::BenchmarkId;
 
 
 
 #[cfg(all(any(target_arch = "aarch64", target_arch = "arm"), feature = "arm_vmull"))]
 pub mod arm_ops {
 
-    use guff::{GaloisField, new_gf8, F8 };
+    use guff::{GaloisField, new_gf8 };
     use guff_matrix::*;
     use guff_matrix::arm_vmull::*;
 
-    use criterion::{black_box, criterion_group, criterion_main, Criterion};
-    use criterion::BenchmarkId;
+    use criterion::Criterion;
 
 
     pub fn ref_gf8_vec(size : usize) {
@@ -38,8 +38,8 @@ pub mod arm_ops {
 
     pub fn nar_tuple(size : usize) {
 
-        let rows = 19;
-        let cols = size;
+        let _rows = 19;
+        let _cols = size;
 
         // let fill_vec = Vec::with_capacity(19 * size + 8)
         let fill_list = (0u8..=255).cycle().take(19 * size + 8);
@@ -54,7 +54,7 @@ pub mod arm_ops {
         let mut index = 0;
         let slice = &fill_vec[0..19*size+8];
         for _times in 0..size {
-            let (new_index, res) = nar_read_next_tuple(index, 19*size, slice);
+            let (new_index, _res) = nar_read_next_tuple(index, 19*size, slice);
             index = new_index;
         }
     }
@@ -80,19 +80,19 @@ pub mod arm_ops {
         let cols = size;
 
         // let fill_vec = Vec::with_capacity(19 * size + 8)
-        let fill_list = (0u8..=255).cycle().take(19 * size + 8);
+        let fill_list = (0u8..=255).cycle().take(rows * cols + 8);
         let mut fill_vec : Vec<u8> = fill_list.collect();
 
         // copy elements from 0..8 to end..end + 8
         for index in 0..8 {
-            fill_vec[19 * size + index] = fill_vec[index]
+            fill_vec[rows * cols + index] = fill_vec[index]
         }
 
         // call the function
         let mut index = 0;
-        let slice = &fill_vec[0..19*size+8];
+        let slice = &fill_vec[0..rows * cols + 8];
         for _times in 0..size {
-            let _res = nar_read_next_mut(&mut index, 19*size, slice);
+            let _res = nar_read_next_mut(&mut index, rows * cols, slice);
         }
     }
     
@@ -179,11 +179,12 @@ criterion_group!(benches,
                  bench_nar_tuple_64k,
 //                 bench_nar_mut_64k,
                  bench_aligned_read_64k,
+                 dummy,
 );
 
-fn dummy(c: &mut Criterion) {
+fn dummy(_c: &mut Criterion) {
         
-    }
+}
 
 
 #[cfg(not(all(any(target_arch = "aarch64", target_arch = "arm"), feature = "arm_vmull")))]

@@ -1,6 +1,6 @@
 
 
-use guff::{GaloisField, new_gf8, F8 };
+use guff::{GaloisField, new_gf8 };
 use guff_matrix::*;
 
 // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -35,15 +35,15 @@ fn simd_gf8_vec(size : usize) {
 }
 
 // not sure if I can get accurate timings for this
-fn alloc_only(size : usize) {
-    let _av = vec![0x53u8; size];
-    let _bv = vec![0xcau8; size];
-    let mut _rv = vec![0x00u8; size];
-}
+// fn alloc_only(size : usize) {
+//     let _av = vec![0x53u8; size];
+//     let _bv = vec![0xcau8; size];
+//     let mut _rv = vec![0x00u8; size];
+// }
     
-fn bench_alloc_only(c: &mut Criterion) {
-    c.bench_function("alloc", |b| b.iter(|| alloc_only(32768)));
-}
+// fn bench_alloc_only(c: &mut Criterion) {
+//     c.bench_function("alloc", |b| b.iter(|| alloc_only(32768)));
+// }
 
 fn bench_ref_gf8_vec(c: &mut Criterion) {
     c.bench_function("ref gf8 vec", |b| b.iter(|| ref_gf8_vec(32768)));
@@ -154,49 +154,47 @@ fn bench_new_simd_gf8_matrix_mul_16384(c: &mut Criterion) {
 fn ref_gf8_matrix_mul(cols : usize) {
 
     let f = new_gf8(0x11b, 0x1b);
-    unsafe {
-        let identity = [
-            1,0,0, 0,0,0, 0,0,0,
-            0,1,0, 0,0,0, 0,0,0,
-            0,0,1, 0,0,0, 0,0,0,
-            0,0,0, 1,0,0, 0,0,0,
-            0,0,0, 0,1,0, 0,0,0,
-            0,0,0, 0,0,1, 0,0,0,
-            0,0,0, 0,0,0, 1,0,0,
-            0,0,0, 0,0,0, 0,1,0,
-            0,0,0, 0,0,0, 0,0,1,
-        ];
-        let mut xform =         // mut because of iterator
-            Matrix::new(9,9,true);
-        xform.fill(&identity[..]);
+    let identity = [
+        1,0,0, 0,0,0, 0,0,0,
+        0,1,0, 0,0,0, 0,0,0,
+        0,0,1, 0,0,0, 0,0,0,
+        0,0,0, 1,0,0, 0,0,0,
+        0,0,0, 0,1,0, 0,0,0,
+        0,0,0, 0,0,1, 0,0,0,
+        0,0,0, 0,0,0, 1,0,0,
+        0,0,0, 0,0,0, 0,1,0,
+        0,0,0, 0,0,0, 0,0,1,
+    ];
+    let mut xform =         // mut because of iterator
+        Matrix::new(9,9,true);
+    xform.fill(&identity[..]);
 
-        // 17 is coprime to 9
-        let mut input =
-            Matrix::new(9,cols,false);
+    // 17 is coprime to 9
+    let mut input =
+        Matrix::new(9,cols,false);
 
-        // create a vector with elements 1..255 repeating
-        let src : Vec<u8> = (1u8..=255).collect();
-        let iter = src.into_iter().cycle().take(9*cols);
-        let vec : Vec<u8> = iter.collect::<Vec<_>>();
-        // eprintln!("Vector length is {}", vec.len());
+    // create a vector with elements 1..255 repeating
+    let src : Vec<u8> = (1u8..=255).collect();
+    let iter = src.into_iter().cycle().take(9*cols);
+    let vec : Vec<u8> = iter.collect::<Vec<_>>();
+    // eprintln!("Vector length is {}", vec.len());
 
-//      let vec : Vec<u8> = (1u8..=9 * 17).collect();
-        input.fill(&vec[..]);
+    //      let vec : Vec<u8> = (1u8..=9 * 17).collect();
+    input.fill(&vec[..]);
 
-        // output layout does matter for final assert!()
-        let mut output = Matrix::new(9,cols, false);
+    // output layout does matter for final assert!()
+    let mut output = Matrix::new(9,cols, false);
 
-        // 
-        // simd_warm_multiply(&mut transform, &mut input, &mut output);
-        //
+    // 
+    // simd_warm_multiply(&mut transform, &mut input, &mut output);
+    //
 
-        // code that was here moved into fn in main module
-        
-        reference_matrix_multiply(&mut xform, &mut input, &mut output, &f);
-        
-        // array has padding, so don't compare that
-        assert_eq!(output.array[0..9*cols], vec);
-    }
+    // code that was here moved into fn in main module
+    
+    reference_matrix_multiply(&mut xform, &mut input, &mut output, &f);
+    
+    // array has padding, so don't compare that
+    assert_eq!(output.array[0..9*cols], vec);
 
 }
 
@@ -235,10 +233,10 @@ fn serial_write(cols : usize) {
 
     // The loop is apparently not optimised out, but just iterate over
     // it once to be sure
-    let mut sum = 0;
-    for c in 0..19*cols {
-        sum ^= out[c];
-    }
+    // let mut sum = 0;
+    // for c in 0..19*cols {
+    //     sum ^= out[c];
+    // }
     // eprintln!("final sum {}", sum);
 }
 
@@ -256,10 +254,10 @@ fn scattered_write(cols : usize) {
         col = if col == cols { 0 } else { col + 1 };
         row = if row == 19 { 0 } else { row + 1 };
     }
-    let mut sum = 0;
-    for c in 0..19*cols {
-        sum ^= out[c];
-    }
+    // let mut sum = 0;
+    // for c in 0..19*cols {
+    //     sum ^= out[c];
+    // }
     // eprintln!("final sum {}", sum);
 }
 
