@@ -268,7 +268,7 @@ where S::E : Copy + Zero + One, G : GaloisField,
 
     // Code for read_next_with_mask() that was handled in SimdMatrix has now
     // moved to Simd. We need to track those variables here.
-    let mut xform_mod_index = 0;
+    let mut xform_mod_index = 0usize;
     let mut xform_array_index = 0;
     let     xform_array = xform.as_slice();
     let     xform_size  = xform.size();
@@ -276,7 +276,7 @@ where S::E : Copy + Zero + One, G : GaloisField,
     let mut xform_ra = zero;
     let mut xform_mask = S::starting_mask();
 
-    let mut input_mod_index = 0;
+    let mut input_mod_index = 0usize;
     let mut input_array_index = 0;
     let     input_array = input.as_slice();
     let     input_size  = input.size();
