@@ -327,13 +327,22 @@ where S::E : Copy + Zero + One, G : GaloisField,
                 //                             &mut xform_ra,
                 //                             &mut xform_mask);
 //            }
-            i0 = S::read_next_with_mask(&mut input_mod_index,
-                              &mut input_array_index,
-                              input_array,
-                              input_size,
-                              &mut input_ra_size,
-                              &mut input_ra,
-                              &mut input_mask);
+            let addr = input_array.as_ptr()
+                .offset(input_mod_index as isize) as *const u8;
+            let read_ptr = input_array.as_ptr()
+                .offset((input_array_index) as isize);
+            x0 = S::read_simd(read_ptr as *const S::E).into();
+            input_array_index += 8;
+            if input_array_index == input_size {
+                input_array_index = 0
+            }
+            // i0 = S::read_next_with_mask(&mut input_mod_index,
+            //                   &mut input_array_index,
+            //                   input_array,
+            //                   input_size,
+            //                   &mut input_ra_size,
+            //                   &mut input_ra,
+            //                   &mut input_mask);
 
             m0  = S::cross_product(x0,i0);
 
