@@ -200,7 +200,7 @@ pub mod arm_ops {
     }
 
     pub fn bench_arm_matrix_mul_16385(c: &mut Criterion) {
-    c.bench_function("arm matrix mul multiple 9x16385",
+        c.bench_function("arm matrix mul multiple 9x16385",
                      |b| b.iter(|| arm_matrix_mul_multiple(16385)));
     }
 
@@ -245,7 +245,7 @@ pub mod arm_ops {
 
     }
 
-    pub fn bench_ref_gf8_matrix_mul_16385(c: &mut Criterion) {
+    pub fn bench_ref_matrix_mul_16385(c: &mut Criterion) {
         c.bench_function("ref matrix mul multiple 9x16385",
                          |b| b.iter(|| ref_matrix_mul_multiple(16385)));
     }
@@ -271,9 +271,8 @@ criterion_group!(benches,
                  bench_nar_tuple_64k,
 //                 bench_nar_mut_64k,
                  bench_aligned_read_64k,
-                 bench_ref_gf8_matrix_mul_16385,
-                 bench_arm_gf8_matrix_mul_16385,
-                 
+                 bench_ref_matrix_mul_16385,
+                 bench_arm_matrix_mul_16385,                 
 );
 
 #[allow(unused)]
