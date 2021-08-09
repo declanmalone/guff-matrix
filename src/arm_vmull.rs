@@ -227,16 +227,17 @@ where S::E : Copy + Zero + One, G : GaloisField
         unsafe {
             arm_matrix_mul_k_multiple_simd(xform, input, output)
         }
-    }
-    if k > 8 {
-        panic!();
-        unsafe {
-            arm_matrix_mul_k_gt_simd(xform, input, output)
-        }
     } else {
-        panic!();
-        unsafe {
-            arm_matrix_mul_k_lt_simd(xform, input, output)
+        if k > 8 {
+            panic!();
+            unsafe {
+                arm_matrix_mul_k_gt_simd(xform, input, output)
+            }
+        } else {
+            panic!();
+            unsafe {
+                arm_matrix_mul_k_lt_simd(xform, input, output)
+            }
         }
     }
 }
