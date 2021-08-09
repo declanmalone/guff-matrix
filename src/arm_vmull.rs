@@ -1662,7 +1662,7 @@ mod tests {
 
         // state variables that read_next will update
         let mut ra;
-        unsafe { ra = VmullEngine8x8::zero_vector() }
+        ra = VmullEngine8x8::zero_vector();
         let mut ra_size = 0;
         let mut mod_index = 0;
         let mut array_index = 0;

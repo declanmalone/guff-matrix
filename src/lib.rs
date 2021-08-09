@@ -449,7 +449,7 @@ where Self : Sized, S::E : PartialEq + Copy + Zero + One,
             // eprintln!("index is {}, rowsize is {}, diag is {}",
             //        index, rowsize, diag);
 
-            let source_row = vec![S::E::zero(); rowsize];
+            let mut source_row = vec![S::E::zero(); rowsize];
             eprintln!("source_row has length {}", source_row.len());
             let source_slice = &mat.as_slice()[index  .. index + rowsize];
             eprintln!("source_slice has length {}", source_slice.len());
