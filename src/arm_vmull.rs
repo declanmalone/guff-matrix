@@ -308,7 +308,7 @@ where S::E : Copy + Zero + One, G : GaloisField,
             // TODO: avail of the fact that there are no straddling
             // reads, so no need to track readahead
 
-            if false {
+//            if false {
                 // let addr = xform_array.as_ptr()
                 //     .offset(xform_mod_index as isize) as *const u8;
                 // let read_ptr = xform_array.as_ptr()
@@ -318,7 +318,7 @@ where S::E : Copy + Zero + One, G : GaloisField,
                 // if xform_array_index == xform_size {
                 //     xform_array_index = 0
                 // }
-            } else {
+//            } else {
                 x0 = S::read_next_with_mask(&mut xform_mod_index,
                                             &mut xform_array_index,
                                             xform_array,
@@ -326,7 +326,7 @@ where S::E : Copy + Zero + One, G : GaloisField,
                                             &mut xform_ra_size,
                                             &mut xform_ra,
                                             &mut xform_mask);
-            }
+//            }
             i0 = S::read_next_with_mask(&mut input_mod_index,
                               &mut input_array_index,
                               input_array,
