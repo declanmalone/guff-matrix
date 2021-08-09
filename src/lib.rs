@@ -1385,5 +1385,36 @@ mod tests {
         }
     }
 
+    #[cfg(all(any(target_arch = "aarch64", target_arch = "arm"),
+              feature = "arm_vmull"))]
+    #[test]
+    fn test_arm_simd_k_multiple_conformance() {
+        let cols = 19;
+        for k in (8,16,24) {
+            for n in 4..17 {
+                eprintln!("testing n={}, k={}", n, k);
+                unsafe {
+                    let mut transform = Matrix::new(n,k,true);
+                    let mut input = Matrix::new(k,cols,false);
+
+                    transform.fill(&(1u8..).take(n*k).collect::<Vec<u8>>()[..]);
+                    input.fill(&(1u8..).take(k*cols).collect::<Vec<u8>>()[..]);
+
+                    let mut new_output = Matrix::new(n,cols,true);
+                    let mut old_output = Matrix::new(n,cols,true);
+
+                    // do multiply both ways
+                    simd_warm_multiply(&mut transform, &mut input,
+                                       &mut old_output);
+                    arm_vmull::arm_simd_matrix_mul(&mut transform, &mut input,
+                                        &mut new_output);
+
+                    assert_eq!(format!("{:x?}", old_output.as_slice()),
+                               format!("{:x?}", new_output.as_slice()));
+                }
+            }
+        }
+    }
+
 
 }
