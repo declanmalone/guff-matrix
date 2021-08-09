@@ -312,7 +312,7 @@ where S::E : Copy + Zero + One, G : GaloisField,
                 .offset(xform_mod_index) as *const u8;
             let read_ptr = xform_array.as_ptr()
                 .offset((xform_array_index) as isize);
-            x0 = VmullEngine8x8::read_simd(read_ptr as *const u8).into();
+            x0 = S::read_simd(read_ptr as *const u8).into();
             xform_array_index += 8;
             if xform_array_index == xform_size {
                 xform_array_index = 0
@@ -1028,7 +1028,6 @@ impl Simd for VmullEngine8x8 {
     unsafe fn read_simd(ptr: *const u8) -> Self {
         vld1_p8(ptr).into()
     }
-
 
     unsafe fn starting_mask() -> Self {
         Self::read_simd(vec![8,9,10,11,12,13,14,15].as_ptr())
