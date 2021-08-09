@@ -21,6 +21,59 @@ use crate::*;
 //
 // 
 
+// rotating masks for selection...
+//
+// use tbl1
+//
+// interested in extracting up to k (or k % simd) elements
+//
+// start with a mask of 0..k-1 (selects k from start of vector)
+//
+// all other elements are 0x80 or some sufficiently-large out-of-range
+// value. BUT: can't be too high because we will be adding and
+// subtracting values from the mask, and selecting, eg, 0xff for
+// "blanked" elements will end up selecting them at some point since
+// they'll end up in the range 0..7
+//
+// evolution of mask given, eg, k=3:
+//
+// 0,1,2   full read of 3 bytes
+// 3,4,5   full read of next 3 bytes
+// 6,7,8   read 2 bytes from this 8-byte vector
+//
+// This straddles the boundary. The "8" value is outside the valid
+// range of lookup values, so we only read (apportion) bytes 6 and 7.
+//
+// Each of the above mask updates simply add 3 to the mask values.
+//
+// When we straddle, we subtract the simd width, 8, giving:
+//
+// -2,-1,0
+//
+// This sets us up to read the 1 single byte that should be
+// apportioned to this dot product (albeit in the third byte of the
+// vector, but that doesn't matter).
+//
+// A similar scheme works for the case where k > simd width (where we
+// have periodic additions of k % simd followed by subtractions of
+// simd)
+//
+// (the case where k is congruent to the simd width can be treated
+// specially, since there is no need to do apportionment of partial
+// sums)
+//
+// This is useful because:
+//
+// * we only have to consider the current simd vector (not m0,m1)
+// * vtbl1 has no extra latency under A64
+// * we get to reuse the same (single) mask during apportionment
+// * operations are only addition and subtraction of value to mask
+//   (splat and add)
+//
+// I'm only considering this for Arm/vtbl right now, but something
+// similar (not as good) involving left and right shifts should also
+// work.
+
 #[derive(Debug,Copy,Clone)]
 pub struct VmullEngine8x8 {
     // using uint8x8_t rather than poly8x8_t since it involves less
@@ -39,35 +92,6 @@ impl VmullEngine8x8 {
     // unsafe fn read_simd_uint(ptr: *const u8) -> uint8x8_t {
     //  vld1_u8(ptr)
     // }
-
-    // Keep values to be summed in vector for as long as possible
-    fn add_vectors(a : Self, b : Self) -> Self {
-        unsafe {
-            let a : uint64x1_t = vreinterpret_u64_u8(a.vec);
-            let b : uint64x1_t = vreinterpret_u64_u8(b.vec);
-            vreinterpret_u8_u64(veor_u64(a, b)).into()
-        }
-    }
-    
-    unsafe fn xor_across(v : Self) -> u8 {
-        let mut v : uint64x1_t = vreinterpret_u64_u8(v.vec);
-        // it seems that n is bits? No. Bytes. No, it's bits after all.
-        // eprintln!("Starting v: {:x?}", v);
-
-        v = veor_u64(v, vshr_n_u64::<32>(v));// eprintln!("after shift 4: {:x?}", v);
-        v = veor_u64(v, vshr_n_u64::<16>(v));// eprintln!("after shift 2: {:x?}", v);
-        v = veor_u64(v, vshr_n_u64::<8>(v)); // eprintln!("after shift 1: {:x?}", v);
-        let ret = vget_lane_u8::<0>(vreinterpret_u8_u64(v));
-        // eprintln!("xor_across returning: {:x}", ret);
-        return ret;
-
-        // There might be an alternative way, using re-casting
-        //
-        // If v is in a D reg (64 bits), we might be able to refer to
-        // its two 32-bit halves? Ah, no... no "across"-like
-        // intrinsics, it seems.
-            
-    }
 
     unsafe fn rotate_right(v : Self, amount : usize) -> Self {
         let mut mask = transmute( [0u8,1,2,3,4,5,6,7] ); // null rotate mask
@@ -289,6 +313,84 @@ impl Simd for VmullEngine8x8 {
 
     unsafe fn starting_mask() -> Self {
         Self::read_simd(vec![8,9,10,11,12,13,14,15].as_ptr())
+    }
+
+    // Keep values to be summed in vector for as long as possible
+    #[inline(always)]
+    fn sum_vectors(a : &Self, b : &Self) -> Self {
+        unsafe {
+            let a : uint64x1_t = vreinterpret_u64_u8(a.vec);
+            let b : uint64x1_t = vreinterpret_u64_u8(b.vec);
+            vreinterpret_u8_u64(veor_u64(a, b)).into()
+        }
+    }
+
+    fn sum_across_simd(v : Self) -> u8 {
+        unsafe {
+            let mut v : uint64x1_t = vreinterpret_u64_u8(v.vec);
+            // it seems that n is bits? No. Bytes. No, it's bits after all.
+            // eprintln!("Starting v: {:x?}", v);
+
+            v = veor_u64(v, vshr_n_u64::<32>(v));// eprintln!("after shift 4: {:x?}", v);
+            v = veor_u64(v, vshr_n_u64::<16>(v));// eprintln!("after shift 2: {:x?}", v);
+            v = veor_u64(v, vshr_n_u64::<8>(v)); // eprintln!("after shift 1: {:x?}", v);
+            let ret = vget_lane_u8::<0>(vreinterpret_u8_u64(v));
+            // eprintln!("sum_across_simd returning: {:x}", ret);
+            return ret;
+
+            // There might be an alternative way, using re-casting
+            //
+            // If v is in a D reg (64 bits), we might be able to refer to
+            // its two 32-bit halves? Ah, no... no "across"-like
+            // intrinsics, it seems.
+        }            
+    }
+
+    fn extract_elements(lo : Self, hi : Self, n : usize, off : usize)
+                           -> (Self, Self) {
+        // let m = if off + n >= 8 { hi } else { lo };
+        unsafe {        
+            // can use left and right shifts, which might be more
+            // efficient
+            let mut bytes = lo;
+            // if off > 0 {
+            bytes = Self::shift_right(bytes, off);
+            //}
+            if off + n >= 8 {
+                // let extracted = Self::extract_from_offset(&lo, &hi, off);
+                // let masked = Self::mask_start_elements(extracted, n).into();
+                // let result = Self::sum_across_simd(masked);
+
+                // if we need some from hi
+                if off + n > 8 {
+                    bytes = veor_u8(bytes.vec,
+                                    Self::shift_left(hi, 16 - (off + n)).vec)
+                        .into();
+                }
+
+                // eprintln!("Got lo: {:x?}, hi: {:x?}, n: {}, off: {}",
+                //        lo.vec, hi.vec, n, off);
+                // eprintln!("extracted: {:x?}", extracted.vec);
+                // eprintln!("masked: {:x?}", masked.vec);
+                // eprintln!("xor result: {:x}", result);
+
+                ( bytes, hi )
+            } else {
+
+                // if n < 8 {
+                bytes = Self::shift_left(bytes, 8 - n);
+                // }
+
+                (bytes,lo)
+
+                // eprintln!("Got lo: {:x?}, hi: {:x?}, n: {}, off: {}",
+                //        lo.vec, hi.vec, n, off);
+                // eprintln!("extracted: {:x?}", extracted.vec);
+                // eprintln!("masked: {:x?}", masked.vec);
+                // eprintln!("xor result: {:x}", result);
+            }
+
+        }
     }
 
 
@@ -622,7 +724,7 @@ impl Simd for VmullEngine8x8 {
             // eprintln!("*array_index < size");
 
             // start with the easiest (and most common) case:
-            if false {
+            if true {
                 if *ra_size > 0 {
                     // combine ra + r0.
                     result = Self
@@ -707,7 +809,7 @@ impl Simd for VmullEngine8x8 {
 
                 let new_mask = Self::extract_mask_from_offset(8 - available);
 
-                if false {
+                if true {
                     if *ra_size > 0 {
 
                         /* old code
@@ -782,7 +884,7 @@ impl Simd for VmullEngine8x8 {
 
                 // last bug (until the next one):
 
-                if false {
+                if true {
                     if new_ra_size > 0 {
                         // new_ra = Self::shift_left(r0,8 - *ra_size);
                         new_ra = Self::shift_left(r0,8 - available_at_end);
@@ -796,7 +898,7 @@ impl Simd for VmullEngine8x8 {
 
                 // here, too, we check whether we have readahead and
                 // do different register ops depending
-                if false {
+                if true {
                     if *ra_size > 0 {
                         // combine ra + r0.
                         result = Self
@@ -903,7 +1005,7 @@ impl Simd for VmullEngine8x8 {
         if off + n >= 8 {
             // let extracted = Self::extract_from_offset(&lo, &hi, off);
             // let masked = Self::mask_start_elements(extracted, n).into();
-            // let result = Self::xor_across(masked);
+            // let result = Self::sum_across_simd(masked);
 
             // if we need some from hi
             if off + n > 8 {
@@ -918,14 +1020,14 @@ impl Simd for VmullEngine8x8 {
             // eprintln!("masked: {:x?}", masked.vec);
             // eprintln!("xor result: {:x}", result);
 
-            ( Self::xor_across(bytes), hi )
+            ( Self::sum_across_simd(bytes), hi )
         } else {
 
             // if n < 8 {
                 bytes = Self::shift_left(bytes, 8 - n);
             // }
 
-            (Self::xor_across(bytes),lo)
+            (Self::sum_across_simd(bytes),lo)
 
             // eprintln!("Got lo: {:x?}, hi: {:x?}, n: {}, off: {}",
             //        lo.vec, hi.vec, n, off);
@@ -1309,15 +1411,15 @@ mod tests {
 
     // XOR across
     #[test]
-    fn test_xor_across() {
+    fn test_sum_across_simd() {
         unsafe {
             let data : uint8x8_t = transmute([1u8, 2,4,8,16,32,64,128]);
-            let got = VmullEngine8x8::xor_across(data.into());
+            let got = VmullEngine8x8::sum_across_simd(data.into());
 
             assert_eq!(255, got);
 
             let data : uint8x8_t = transmute([0u8,1, 2,4,8,16,32,64]);
-            let got = VmullEngine8x8::xor_across(data.into());
+            let got = VmullEngine8x8::sum_across_simd(data.into());
 
             assert_eq!(0x7f, got);
         }

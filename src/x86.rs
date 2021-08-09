@@ -428,6 +428,81 @@ impl Simd for X86u8x16Long0x11b {
         }
     }
 
+    #[inline(always)]
+    fn sum_vectors(a : &Self, b : &Self) -> Self {
+        let a = a.vec;
+        let b = b.vec;
+        unsafe {
+            Self { vec : _mm_xor_si128(a,b) }
+        }
+    }
+    
+    // first return value gets added to sum
+    fn extract_elements(lo : Self, hi : Self, n : usize, off : usize)
+                        -> (Self, Self) {
+
+        debug_assert!((off < 16) && (n > 0) && (n <= 16));
+        // if we straddle, will return m1 (hi), otherwise m0 (lo)
+        let m = if off + n >= 16 { hi } else { lo };
+
+        unsafe {
+            // if offset != 0, shift right to skip over them
+            let mut temp = lo;
+            if off != 0 {
+                // eprintln!("right shifting temp (=lo) {:x?} to skip past off {}",
+                //        temp.vec, off);
+                temp = Self::right_shift(temp, off);
+                // eprintln!("result: {:x?}", temp);
+            }
+
+            // if are any unconsumed bytes at the end, remove them
+            if off + n < 16 {
+                let shift_amount = 16 - n;
+                // eprintln!("off + n ({}) < 16", off + n);
+                // eprintln!("left shifting {:x?} by {} to remove end bytes",
+                //        temp.vec, shift_amount);
+                temp = Self::left_shift(temp, shift_amount);
+                // eprintln!("result: {:x?}", temp);
+            }
+
+            // note case of off + n = 16 requires neither the above
+            // nor the below block.
+
+            // if any bytes from hi are required, add them
+            // (they're always at the start of the register)
+            if off + n > 16 {
+                let shift_amount = 32 - (off + n);
+                // eprintln!("off + n ({}) > 16", off + n);
+                // eprintln!("left shifting hi {:x?} by {} to remove end bytes",
+                //        hi.vec, shift_amount);
+                let temp_hi = Self::left_shift(hi, shift_amount);
+                // eprintln!("result: {:x?}", temp_hi.vec);
+                // eprintln!("adding that to temp ({:x?})", temp.vec);
+                temp = Self { vec : _mm_xor_si128(
+                    temp.vec,
+                    temp_hi.vec
+                ) };
+                // eprintln!("result: {:x?}", temp.vec);
+            }
+
+            (temp,m)
+        }
+    }
+
+
+    #[inline(always)]
+    fn sum_across_simd(v : Self) -> Self::E {
+        let mut temp = v.vec;
+        unsafe {
+            // sum across using fixed-size shifts
+            temp = _mm_xor_si128(temp, _mm_srli_si128(temp, 8));
+            temp = _mm_xor_si128(temp, _mm_srli_si128(temp, 4));
+            temp = _mm_xor_si128(temp, _mm_srli_si128(temp, 2));
+            temp = _mm_xor_si128(temp, _mm_srli_si128(temp, 1));
+            (_mm_extract_epi8(temp, 0) & 255) as u8
+        }
+    }
+    
     // rewrite old code to use pshufb and masks
 
     // Two stages ...

@@ -191,6 +191,12 @@ pub trait Simd {
     // Keep interface change simple while testing
     unsafe fn starting_mask() -> Self;
 
+    // methods to replace sum_across_n
+    fn sum_vectors(a : &Self, b : &Self) -> Self;
+    fn sum_across_simd(v : Self) -> Self::E;
+    fn extract_elements(lo : Self, hi : Self, n : usize, off : usize)
+                        -> (Self, Self) where Self: Sized;
+    
     fn cross_product(a : Self, b : Self) -> Self;
     unsafe fn sum_across_n(m0 : Self, m1 : Self, n : usize, off : usize)
                            -> (Self::E, Self);
@@ -540,7 +546,9 @@ where S::E : Copy + Zero + One, G : GaloisField {
     
     // algorithm not so trivial any more, but still quite simple
     let mut dp_counter  = 0;
-    let mut sum         = S::zero_element();
+    // let mut sum         = S::zero_element();
+    let zero = S::zero_vector();
+    let mut sum_vector = zero;
     let simd_width = S::SIMD_BYTES;
 
     // Code for read_next() that was handled in SimdMatrix has now
@@ -550,7 +558,7 @@ where S::E : Copy + Zero + One, G : GaloisField {
     let     xform_array = xform.as_slice();
     let     xform_size  = xform.size();
     let mut xform_ra_size = 0;
-    let mut xform_ra = S::zero_vector();
+    let mut xform_ra = zero;
     
 
     let mut input_mod_index = 0;
@@ -558,7 +566,7 @@ where S::E : Copy + Zero + One, G : GaloisField {
     let     input_array = input.as_slice();
     let     input_size  = input.size();
     let mut input_ra_size = 0;
-    let mut input_ra = S::zero_vector();
+    let mut input_ra = zero;
 
     // we handle or and oc (was in matrix class)
     let mut or : usize = 0;
@@ -619,9 +627,12 @@ where S::E : Copy + Zero + One, G : GaloisField {
 
         // handle case where k >= simd_width
         while dp_counter + simd_width <= k {
+            // let (part, new_m)
+            // = S::sum_across_n(m0,m1,simd_width,offset_mod_simd);
+            // sum = S::add_elements(sum,part);
             let (part, new_m)
-                = S::sum_across_n(m0,m1,simd_width,offset_mod_simd);
-            sum = S::add_elements(sum,part);
+                = S::extract_elements(m0,m1,simd_width,offset_mod_simd);
+            sum_vector = S::sum_vectors(&sum_vector,&part);
             m0 = new_m;
             // x0  = xform.read_next();
             // i0  = input.read_next();
@@ -647,11 +658,12 @@ where S::E : Copy + Zero + One, G : GaloisField {
 
             // eprintln!("Calling sum_across_n with m0 {:?}, m1 {:?}, n {}, offset {}",
             //      m0.vec, m1.vec, want, offset_mod_simd);
-            let (part, new_m) = S::sum_across_n(m0,m1,want,offset_mod_simd);
+            //            let (part, new_m) = S::sum_across_n(m0,m1,want,offset_mod_simd);
+            let (part, new_m) = S::extract_elements(m0,m1,want,offset_mod_simd);
 
             // eprintln!("got sum {}, new m {:?}", part, new_m.vec);
 
-            sum = S::add_elements(sum,part);
+            sum_vector = S::sum_vectors(&sum_vector,&part);
             if offset_mod_simd + want >= simd_width {
                 // consumed m0 and maybe some of m1 too
                 m0 = new_m;     // nothing left in old m0, so m0 <- m1
@@ -686,6 +698,8 @@ where S::E : Copy + Zero + One, G : GaloisField {
         // sum now has a full dot product
         // eprintln!("Sum: {}", sum);
 
+        let sum = S::sum_across_simd(sum_vector);
+
         // handle writing and incrementing or, oc
         // let write_index = output.rowcol_to_index(or,oc);
         let write_index = or * down + oc * right;
@@ -693,7 +707,7 @@ where S::E : Copy + Zero + One, G : GaloisField {
         or = if or + 1 < orows { or + 1 } else { 0 };
         oc = if oc + 1 < ocols { oc + 1 } else { 0 };
 
-        sum = S::zero_element();
+        sum_vector = zero;
         dp_counter = 0;
         total_dps += 1;
     }
@@ -735,7 +749,11 @@ where S::E : Copy + Zero + One, G : GaloisField {
     
     // algorithm not so trivial any more, but still quite simple
     let mut dp_counter  = 0;
-    let mut sum         = S::zero_element();
+    // let mut sum         = S::zero_element();
+    let zero = S::zero_vector();
+    let mut sum_vector  = zero;
+    
+    
     let simd_width = S::SIMD_BYTES;
 
     // Code for read_next_with_mask() that was handled in SimdMatrix has now
@@ -745,7 +763,7 @@ where S::E : Copy + Zero + One, G : GaloisField {
     let     xform_array = xform.as_slice();
     let     xform_size  = xform.size();
     let mut xform_ra_size = 0;
-    let mut xform_ra = S::zero_vector();
+    let mut xform_ra = zero;
     let mut xform_mask = S::starting_mask();
 
     let mut input_mod_index = 0;
@@ -753,7 +771,7 @@ where S::E : Copy + Zero + One, G : GaloisField {
     let     input_array = input.as_slice();
     let     input_size  = input.size();
     let mut input_ra_size = 0;
-    let mut input_ra = S::zero_vector();
+    let mut input_ra = zero;
     let mut input_mask = S::starting_mask();
 
     // we handle or and oc (was in matrix class)
@@ -816,9 +834,13 @@ where S::E : Copy + Zero + One, G : GaloisField {
 
         // handle case where k >= simd_width
         while dp_counter + simd_width <= k {
-            let (part, new_m)
-                = S::sum_across_n(m0,m1,simd_width,offset_mod_simd);
-            sum = S::add_elements(sum,part);
+            // let (part, new_m)
+            // = S::sum_across_n(m0,m1,simd_width,offset_mod_simd);
+
+            let (part, new_m)                                       
+                = S::extract_elements(m0,m1,simd_width,offset_mod_simd);
+            sum_vector = S::sum_vectors(&sum_vector,&part);
+
             m0 = new_m;
             // x0  = xform.read_next_with_mask();
             // i0  = input.read_next_with_mask();
@@ -846,11 +868,13 @@ where S::E : Copy + Zero + One, G : GaloisField {
 
             // eprintln!("Calling sum_across_n with m0 {:?}, m1 {:?}, n {}, offset {}",
             //      m0.vec, m1.vec, want, offset_mod_simd);
-            let (part, new_m) = S::sum_across_n(m0,m1,want,offset_mod_simd);
+            // let (part, new_m) = S::sum_across_n(m0,m1,want,offset_mod_simd);
 
+            let (part, new_m) = S::extract_elements(m0,m1,want,offset_mod_simd);
+            
             // eprintln!("got sum {}, new m {:?}", part, new_m.vec);
 
-            sum = S::add_elements(sum,part);
+            sum_vector = S::sum_vectors(&sum_vector,&part);
             if offset_mod_simd + want >= simd_width {
                 // consumed m0 and maybe some of m1 too
                 m0 = new_m;     // nothing left in old m0, so m0 <- m1
@@ -887,13 +911,15 @@ where S::E : Copy + Zero + One, G : GaloisField {
         // sum now has a full dot product
         // eprintln!("Sum: {}", sum);
 
+        let sum = S::sum_across_simd(sum_vector);
+
         // handle writing and incrementing or, oc
         let write_index = or * down + oc * right;
         output.indexed_write(write_index,sum);
         or = if or + 1 < orows { or + 1 } else { 0 };
         oc = if oc + 1 < ocols { oc + 1 } else { 0 };
 
-        sum = S::zero_element();
+        sum_vector = zero;
         dp_counter = 0;
         total_dps += 1;
     }
