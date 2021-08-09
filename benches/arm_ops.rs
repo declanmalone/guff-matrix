@@ -200,7 +200,7 @@ pub mod arm_ops {
     }
 
     pub fn bench_arm_matrix_mul_16385(c: &mut Criterion) {
-        c.bench_function("arm matrix mul multiple 9x16385",
+        c.bench_function("arm matrix mul multiple 8x16385",
                      |b| b.iter(|| arm_matrix_mul_multiple(16385)));
     }
 
@@ -241,12 +241,12 @@ pub mod arm_ops {
         reference_matrix_multiply(&mut xform, &mut input, &mut output, &f);
         
         // array has padding, so don't compare that
-        assert_eq!(output.array[0..9*cols], vec);
+        assert_eq!(output.array[0..8*cols], vec);
 
     }
 
     pub fn bench_ref_matrix_mul_16385(c: &mut Criterion) {
-        c.bench_function("ref matrix mul multiple 9x16385",
+        c.bench_function("ref matrix mul multiple 8x16385",
                          |b| b.iter(|| ref_matrix_mul_multiple(16385)));
     }
 
