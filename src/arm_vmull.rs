@@ -266,12 +266,12 @@ where S::E : Copy + Zero + One, G : GaloisField,
 
     let simd_width = 8;
 
-    // Code for read_next_with_mask() that was handled in SimdMatrix has now
-    // moved to Simd. We need to track those variables here.
+    // track xform reads
     let mut xform_array_index = 0usize;
     let     xform_array = xform.as_slice();
     let     xform_size  = xform.size();
 
+    // track input reads
     let mut input_array_index = 0usize;
     let     input_array = input.as_slice();
     let     input_size  = input.size();
@@ -298,8 +298,6 @@ where S::E : Copy + Zero + One, G : GaloisField,
         while dp_counter < k {
 
             // read next x0
-            let addr = xform_array.as_ptr()
-                .offset(xform_array_index as isize) as *const u8;
             let read_ptr = xform_array.as_ptr()
                 .offset((xform_array_index) as isize);
             x0 = S::read_simd(read_ptr as *const S::E).into();
@@ -309,8 +307,6 @@ where S::E : Copy + Zero + One, G : GaloisField,
             }
 
             // read next i0
-            let addr = input_array.as_ptr()
-                .offset(input_array_index as isize) as *const u8;
             let read_ptr = input_array.as_ptr()
                 .offset((input_array_index) as isize);
             i0 = S::read_simd(read_ptr as *const S::E).into();
@@ -325,9 +321,6 @@ where S::E : Copy + Zero + One, G : GaloisField,
             // sum ^= S::sum_across_simd(m0);
             dp_counter += simd_width;
         }
-
-        // sum now has a full dot product
-        // eprintln!("Sum: {}", sum);
 
         let sum = S::sum_across_simd(sum_vector);
 
