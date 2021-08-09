@@ -223,17 +223,18 @@ where S::E : Copy + Zero + One, G : GaloisField
         debug_assert_ne!(c, denominator);
     }
 
-    let k = xform.cols();
     if k & 7 == 0 {
         unsafe {
             arm_matrix_mul_k_multiple_simd(xform, input, output)
         }
     }
     if k > 8 {
+        panic!();
         unsafe {
             arm_matrix_mul_k_gt_simd(xform, input, output)
         }
     } else {
+        panic!();
         unsafe {
             arm_matrix_mul_k_lt_simd(xform, input, output)
         }
@@ -241,7 +242,7 @@ where S::E : Copy + Zero + One, G : GaloisField
 }
 
 // special case where k is a multiple of simd
-unsafe fn arm_matrix_mul_k_multiple_simd<S : Simd<E=G::E> + Copy, G>(
+unsafe pub fn arm_matrix_mul_k_multiple_simd<S : Simd<E=G::E> + Copy, G>(
     xform  : &mut impl SimdMatrix<S,G>,
     input  : &mut impl SimdMatrix<S,G>,
     output : &mut impl SimdMatrix<S,G>)
@@ -256,11 +257,11 @@ where S::E : Copy + Zero + One, G : GaloisField {
     
     // algorithm not so trivial any more, but still quite simple
     let mut dp_counter  = 0;
-    // let mut sum         = S::zero_element();
+    let mut sum         = S::zero_element();
     let zero = S::zero_vector();
     let mut sum_vector  = zero;
 
-    let simd_width = S::SIMD_BYTES;
+    let simd_width = 8;
 
     // Code for read_next_with_mask() that was handled in SimdMatrix has now
     // moved to Simd. We need to track those variables here.
@@ -322,6 +323,7 @@ where S::E : Copy + Zero + One, G : GaloisField {
             m0  = S::cross_product(x0,i0);
 
             sum_vector = S::sum_vectors(&sum_vector,&m0);
+            // sum ^= S::sum_across_simd(m0);
             dp_counter += simd_width;
         }
 
