@@ -248,7 +248,8 @@ pub unsafe fn arm_matrix_mul_k_multiple_simd<S : Simd<E=G::E> + Copy, G>(
     input  : &mut impl SimdMatrix<S,G>,
     output : &mut impl SimdMatrix<S,G>)
 where S::E : Copy + Zero + One, G : GaloisField,
-      S: std::convert::From<arm_vmull::VmullEngine8x8>{
+      S: std::convert::From<arm_vmull::VmullEngine8x8>
+{
 
     let c = input.cols();
     let n = xform.rows();
@@ -360,7 +361,9 @@ unsafe fn arm_matrix_mul_k_gt_simd<S : Simd<E=G::E> + Copy, G>(
     xform  : &mut impl SimdMatrix<S,G>,
     input  : &mut impl SimdMatrix<S,G>,
     output : &mut impl SimdMatrix<S,G>)
-where S::E : Copy + Zero + One, G : GaloisField {
+where S::E : Copy + Zero + One, G : GaloisField,
+      S: std::convert::From<arm_vmull::VmullEngine8x8>
+{
 
     // dimension tests
     let c = input.cols();
@@ -565,7 +568,9 @@ unsafe fn arm_matrix_mul_k_lt_simd<S : Simd<E=G::E> + Copy, G>(
     xform  : &mut impl SimdMatrix<S,G>,
     input  : &mut impl SimdMatrix<S,G>,
     output : &mut impl SimdMatrix<S,G>)
-where S::E : Copy + Zero + One, G : GaloisField {
+where S::E : Copy + Zero + One, G : GaloisField,
+      S: std::convert::From<arm_vmull::VmullEngine8x8>
+{
 
     // dimension tests
     let c = input.cols();
