@@ -18,7 +18,6 @@ use crate::*;
 // * Different types of masks
 // * in-register storage of matrix
 // * constants for lookup tables
-//
 // 
 
 // rotating masks for selection...
@@ -154,7 +153,7 @@ impl VmullEngine8x8 {
 
     // create mask, called when starting off and *ra_size changes
     unsafe fn extract_mask_from_offset(offset : usize) -> Self {
-//        debug_assert!(offset < 8);
+        // debug_assert!(offset < 8);
         let mut mask = transmute( [0u8,1,2,3,4,5,6,7] ); // null rotate mask
         let add_amount = vmov_n_u8(offset as u8);
         vadd_u8(mask, add_amount).into()
@@ -491,14 +490,14 @@ impl Simd for VmullEngine8x8 {
         // eprintln!("Read r0: {:x?}", r0.vec);
 
         let result;
-        let mut have_r1 = false;
-        let mut r1 = r0;                // silence compiler
+        // let mut have_r1 = false;
+        let mut r1; // = r0;                // silence compiler
 
         // Check against array_index here because we've incremented
         // it. Could also check if available_at_end <= 8, which should
         // be the same thing.
         let array_bool = *array_index >= size;
-        let avail_bool = available_at_end <= 8;
+        // let avail_bool = available_at_end <= 8;
 
         // apparently not...
         // debug_assert_eq!(array_bool, avail_bool);
@@ -676,7 +675,7 @@ impl Simd for VmullEngine8x8 {
 
         let mut new_ra : Self; // = r0; // silence compiler
         let mut new_mod_index = *mod_index;
-        let mut new_ra_size   = *ra_size;
+        let mut new_ra_size; //   = *ra_size;
 
         // Both should be OK, but it's safer to only look at
         // mod_index, since that only changes once per call and so is
@@ -1886,7 +1885,5 @@ mod tests {
             }
         }
     }
-
-
     
 }
