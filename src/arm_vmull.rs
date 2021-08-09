@@ -1805,13 +1805,13 @@ mod tests {
         let mut check = (0u8..21).cycle();
         let mut check_vec = [0u8; 8];
         let addr = check_vec.as_ptr();
-        let old_mod_index = 0;
+        let _old_mod_index = 0;
 
         // variables for use with two non-aligned read functions
         let mut nar_index_fn = 0;
         let mut nar_index_mut = 0;
         
-        for i in 0..42 {
+        for _ in 0..42 {
             unsafe {
                 // isn't there a quicker way to take 8 elements? Can't use
                 // check.chunks()
