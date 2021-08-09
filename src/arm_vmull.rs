@@ -179,7 +179,7 @@ const APPORTION_FROM_LOWER : [i8; 8 * 9] =
 
 
 
-pub fn apportion_mask(k : usize) -> VmullEngine8x8 {
+pub fn apportion_mask(k : isize) -> VmullEngine8x8 {
     debug_assert!(k < 8);
     unsafe {
         let addr = SELECT_K_FROM_START.as_ptr();
@@ -230,13 +230,13 @@ where S::E : Copy + Zero + One, G : GaloisField
                                        output)
     }
     if k > 8 {
-        arm_matrix_mul_k_gt_simd(&mut xform,
-                                 &mut input,
-                                 &mut output)
+        arm_matrix_mul_k_gt_simd(xform,
+                                 input,
+                                 output)
     } else {
-        arm_matrix_mul_k_lt_simd(&mut xform,
-                                 &mut input,
-                                 &mut output)
+        arm_matrix_mul_k_lt_simd(xform,
+                                 input,
+                                 output)
     }
 }
 
