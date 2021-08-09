@@ -242,7 +242,7 @@ where S::E : Copy + Zero + One, G : GaloisField
 }
 
 // special case where k is a multiple of simd
-unsafe pub fn arm_matrix_mul_k_multiple_simd<S : Simd<E=G::E> + Copy, G>(
+pub unsafe fn arm_matrix_mul_k_multiple_simd<S : Simd<E=G::E> + Copy, G>(
     xform  : &mut impl SimdMatrix<S,G>,
     input  : &mut impl SimdMatrix<S,G>,
     output : &mut impl SimdMatrix<S,G>)
