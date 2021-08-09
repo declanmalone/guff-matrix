@@ -268,21 +268,13 @@ where S::E : Copy + Zero + One, G : GaloisField,
 
     // Code for read_next_with_mask() that was handled in SimdMatrix has now
     // moved to Simd. We need to track those variables here.
-    let mut xform_mod_index = 0usize;
-    let mut xform_array_index = 0;
+    let mut xform_array_index = 0usize;
     let     xform_array = xform.as_slice();
     let     xform_size  = xform.size();
-    let mut xform_ra_size = 0;
-    let mut xform_ra = zero;
-    let mut xform_mask = S::starting_mask();
 
-    let mut input_mod_index = 0usize;
-    let mut input_array_index = 0;
+    let mut input_array_index = 0usize;
     let     input_array = input.as_slice();
     let     input_size  = input.size();
-    let mut input_ra_size = 0;
-    let mut input_ra = zero;
-    let mut input_mask = S::starting_mask();
 
     // we handle or and oc (was in matrix class)
     let mut or : usize = 0;
@@ -305,12 +297,9 @@ where S::E : Copy + Zero + One, G : GaloisField,
 
         while dp_counter < k {
 
-            // TODO: avail of the fact that there are no straddling
-            // reads, so no need to track readahead
-
-//            if false {
+            // read next x0
             let addr = xform_array.as_ptr()
-                .offset(xform_mod_index as isize) as *const u8;
+                .offset(xform_array_index as isize) as *const u8;
             let read_ptr = xform_array.as_ptr()
                 .offset((xform_array_index) as isize);
             x0 = S::read_simd(read_ptr as *const S::E).into();
@@ -318,17 +307,10 @@ where S::E : Copy + Zero + One, G : GaloisField,
             if xform_array_index == xform_size {
                 xform_array_index = 0
             }
-//            } else {
-                // x0 = S::read_next_with_mask(&mut xform_mod_index,
-                //                             &mut xform_array_index,
-                //                             xform_array,
-                //                             xform_size,
-                //                             &mut xform_ra_size,
-                //                             &mut xform_ra,
-                //                             &mut xform_mask);
-//            }
+
+            // read next i0
             let addr = input_array.as_ptr()
-                .offset(input_mod_index as isize) as *const u8;
+                .offset(input_array_index as isize) as *const u8;
             let read_ptr = input_array.as_ptr()
                 .offset((input_array_index) as isize);
             i0 = S::read_simd(read_ptr as *const S::E).into();
@@ -336,13 +318,6 @@ where S::E : Copy + Zero + One, G : GaloisField,
             if input_array_index == input_size {
                 input_array_index = 0
             }
-            // i0 = S::read_next_with_mask(&mut input_mod_index,
-            //                   &mut input_array_index,
-            //                   input_array,
-            //                   input_size,
-            //                   &mut input_ra_size,
-            //                   &mut input_ra,
-            //                   &mut input_mask);
 
             m0  = S::cross_product(x0,i0);
 
