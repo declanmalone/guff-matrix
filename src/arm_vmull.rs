@@ -72,14 +72,13 @@ use crate::*;
 //
 // In this case we start off with a value from this table:
 //
-const SELECT_K_FROM_START : [u8; 8 * 8] =
+const SELECT_K_FROM_START : [u8; 8 * 9] =
     [
         128, 128, 128, 128,    128, 128, 128, 128, // select none
         0  , 128, 128, 128,    128, 128, 128, 128, // select 1
         0  ,   1, 128, 128,    128, 128, 128, 128,
         0  ,   1,   2, 128,    128, 128, 128, 128,
         0  ,   1,   2,   3,    128, 128, 128, 128,
-        0  ,   1,   2,   3,      4, 128, 128, 128,
         0  ,   1,   2,   3,      4, 128, 128, 128,
         0  ,   1,   2,   3,      4,   5, 128, 128,
         0  ,   1,   2,   3,      4,   5,   6, 128,
@@ -109,7 +108,7 @@ const SELECT_K_FROM_START : [u8; 8 * 8] =
 // This seems to require using two masks...
 
 // Won't use this though! See below.
-const SELECT_K_FROM_END : [u8; 8 * 8] =
+const SELECT_K_FROM_END : [u8; 8 * 9] =
     [
         128, 128, 128, 128,    128, 128, 128, 128, // select none
         128, 128, 128, 128,    128, 128, 128,   7, // select 1
@@ -183,7 +182,7 @@ const APPORTION_FROM_LOWER : [i8; 8 * 9] =
 pub fn apportion_mask(k : usize) -> VmullEngine8x8 {
     debug_assert!(k < 8);
     unsafe {
-        addr = SELECT_K_FROM_START.as_ptr();
+        let addr = SELECT_K_FROM_START.as_ptr();
         VmullEngine8x8::read_simd(addr.offset(k * 8))
     }
 }
@@ -191,7 +190,7 @@ pub fn apportion_mask(k : usize) -> VmullEngine8x8 {
 pub fn update_apportion_mask(mask : VmullEngine8x8, k : isize)
                              -> VmullEngine8x8 {
     unsafe {
-        
+        mask
     }
 }
 
@@ -205,17 +204,30 @@ pub fn arm_simd_matrix_mul<S : Simd<E=G::E> + Copy, G>(
     output : &mut impl SimdMatrix<S,G>)
 where S::E : Copy + Zero + One, G : GaloisField
 {
+    // dimension tests
+    let c = input.cols();
     let n = xform.rows();
+    let k = xform.cols();
+
+    // regular asserts, since they check user-supplied vars
+    assert!(k > 0);
+    assert!(n > 0);
+    assert!(c > 0);
+    assert_eq!(input.rows(), k);
+    assert_eq!(output.cols(), c);
+    assert_eq!(output.rows(), n);
+    
     if n > 1 {
         let denominator = gcd(n,c);
         debug_assert_ne!(n, denominator);
         debug_assert_ne!(c, denominator);
     }
 
+    let k = xform.cols();
     if k & 7 == 0 {
-        arm_matrix_mul_k_multiple_simd(&mut xform,
-                                       &mut input,
-                                       &mut output)
+        arm_matrix_mul_k_multiple_simd(xform,
+                                       input,
+                                       output)
     }
     if k > 8 {
         arm_matrix_mul_k_gt_simd(&mut xform,
@@ -235,21 +247,12 @@ fn arm_matrix_mul_k_multiple_simd<S : Simd<E=G::E> + Copy, G>(
     output : &mut impl SimdMatrix<S,G>)
 where S::E : Copy + Zero + One, G : GaloisField {
 
-    // dimension tests
     let c = input.cols();
     let n = xform.rows();
     let k = xform.cols();
 
     // isn't a pub fn, so debug_assert is OK
     debug_assert!(k & 7 == 0);
-
-    // regular asserts, since they check user-supplied vars
-    assert!(k > 0);
-    assert!(n > 0);
-    assert!(c > 0);
-    assert_eq!(input.rows(), k);
-    assert_eq!(output.cols(), c);
-    assert_eq!(output.rows(), n);
     
     // algorithm not so trivial any more, but still quite simple
     let mut dp_counter  = 0;
@@ -285,6 +288,7 @@ where S::E : Copy + Zero + One, G : GaloisField {
 
     let mut i0 : S;
     let mut x0 : S;
+    let mut m0 : S;
 
     let mut total_dps = 0;
     let target = n * c;         // number of dot products
