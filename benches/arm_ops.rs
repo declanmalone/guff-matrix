@@ -177,7 +177,7 @@ pub mod arm_ops {
                 0,0,0,0, 0,0,1,0,
                 0,0,0,0, 0,0,0,1,
             ];
-            let transform = Matrix::new(8,8,true);
+            let mut transform = Matrix::new(8,8,true);
             transform.fill(&identity[..]);
 
             let mut input = Matrix::new(8,cols,false);
