@@ -795,11 +795,6 @@ pub struct VmullEngine8x8 {
 // low-level intrinsics
 impl VmullEngine8x8 {
 
-    #[inline(always)]
-    unsafe fn read_simd(ptr: *const u8) -> Self {
-        vld1_p8(ptr).into()
-    }
-
     // unsafe fn read_simd_uint(ptr: *const u8) -> uint8x8_t {
     //  vld1_u8(ptr)
     // }
@@ -1028,6 +1023,12 @@ impl Simd for VmullEngine8x8 {
     fn zero_vector() -> Self {
         unsafe { vmov_n_u8(0).into() }
     }
+
+    #[inline(always)]
+    unsafe fn read_simd(ptr: *const u8) -> Self {
+        vld1_p8(ptr).into()
+    }
+
 
     unsafe fn starting_mask() -> Self {
         Self::read_simd(vec![8,9,10,11,12,13,14,15].as_ptr())

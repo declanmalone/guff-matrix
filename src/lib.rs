@@ -187,6 +187,7 @@ pub trait Simd {
     type V;                     // vector type, eg [u8; 8]
     const SIMD_BYTES : usize;
 
+    unsafe fn read_simd(ptr: *const Self::E) -> Self;
     fn zero_vector() -> Self;
 
     // Keep interface change simple while testing
