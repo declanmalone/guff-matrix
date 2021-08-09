@@ -187,7 +187,7 @@ pub fn apportion_mask(k : isize) -> VmullEngine8x8 {
     }
 }
 
-pub fn update_apportion_mask(mask : VmullEngine8x8, k : isize)
+pub fn update_apportion_mask(mask : VmullEngine8x8, _k : isize)
                              -> VmullEngine8x8 {
     unsafe {
         mask
@@ -225,23 +225,23 @@ where S::E : Copy + Zero + One, G : GaloisField
 
     let k = xform.cols();
     if k & 7 == 0 {
-        arm_matrix_mul_k_multiple_simd(xform,
-                                       input,
-                                       output)
+        unsafe {
+            arm_matrix_mul_k_multiple_simd(xform, input, output)
+        }
     }
     if k > 8 {
-        arm_matrix_mul_k_gt_simd(xform,
-                                 input,
-                                 output)
+        unsafe {
+            arm_matrix_mul_k_gt_simd(xform, input, output)
+        }
     } else {
-        arm_matrix_mul_k_lt_simd(xform,
-                                 input,
-                                 output)
+        unsafe {
+            arm_matrix_mul_k_lt_simd(xform, input, output)
+        }
     }
 }
 
 // special case where k is a multiple of simd
-fn arm_matrix_mul_k_multiple_simd<S : Simd<E=G::E> + Copy, G>(
+unsafe fn arm_matrix_mul_k_multiple_simd<S : Simd<E=G::E> + Copy, G>(
     xform  : &mut impl SimdMatrix<S,G>,
     input  : &mut impl SimdMatrix<S,G>,
     output : &mut impl SimdMatrix<S,G>)
@@ -338,7 +338,7 @@ where S::E : Copy + Zero + One, G : GaloisField {
     }
 }
 
-pub fn arm_matrix_mul_k_gt_simd<S : Simd<E=G::E> + Copy, G>(
+unsafe fn arm_matrix_mul_k_gt_simd<S : Simd<E=G::E> + Copy, G>(
     xform  : &mut impl SimdMatrix<S,G>,
     input  : &mut impl SimdMatrix<S,G>,
     output : &mut impl SimdMatrix<S,G>)
@@ -543,7 +543,7 @@ where S::E : Copy + Zero + One, G : GaloisField {
     }
 }
 
-pub fn arm_matrix_mul_k_lt_simd<S : Simd<E=G::E> + Copy, G>(
+unsafe fn arm_matrix_mul_k_lt_simd<S : Simd<E=G::E> + Copy, G>(
     xform  : &mut impl SimdMatrix<S,G>,
     input  : &mut impl SimdMatrix<S,G>,
     output : &mut impl SimdMatrix<S,G>)
