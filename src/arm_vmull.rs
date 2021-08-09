@@ -724,7 +724,7 @@ impl Simd for VmullEngine8x8 {
             // eprintln!("*array_index < size");
 
             // start with the easiest (and most common) case:
-            if true {
+            if false {
                 if *ra_size > 0 {
                     // combine ra + r0.
                     result = Self
@@ -809,7 +809,7 @@ impl Simd for VmullEngine8x8 {
 
                 let new_mask = Self::extract_mask_from_offset(8 - available);
 
-                if true {
+                if false {
                     if *ra_size > 0 {
 
                         /* old code
@@ -884,7 +884,7 @@ impl Simd for VmullEngine8x8 {
 
                 // last bug (until the next one):
 
-                if true {
+                if false {
                     if new_ra_size > 0 {
                         // new_ra = Self::shift_left(r0,8 - *ra_size);
                         new_ra = Self::shift_left(r0,8 - available_at_end);
@@ -898,7 +898,7 @@ impl Simd for VmullEngine8x8 {
 
                 // here, too, we check whether we have readahead and
                 // do different register ops depending
-                if true {
+                if false {
                     if *ra_size > 0 {
                         // combine ra + r0.
                         result = Self
