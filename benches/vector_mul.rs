@@ -10,8 +10,9 @@ use guff_matrix::*;
 // #![allow(unused)]
 //fn main() {
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use criterion::BenchmarkId;
+use criterion::{criterion_group, criterion_main, Criterion};
+// use criterion::black_box;
+// use criterion::BenchmarkId;
 
 fn ref_gf8_vec(size : usize) {
     let av = vec![0x53u8; size];

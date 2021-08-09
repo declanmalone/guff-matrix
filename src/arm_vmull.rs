@@ -1528,6 +1528,7 @@ mod tests {
     // (since readahead + trailing + new stream can exceed 2 vectors)
 
     // #[test]
+    #[allow(unused)]
     fn test_non_wrapping_read() {
         unsafe {
             // actual vector data is 42s. The rest is just padding to
@@ -1554,6 +1555,7 @@ mod tests {
     }
 
     // #[test]
+    #[allow(unused)]
     fn test_wrapping_read() {
         unsafe {
             // actual vector data is non-zeros. The rest is just

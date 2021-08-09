@@ -117,18 +117,18 @@ pub mod arm_ops {
         let cols = size;
 
         // let fill_vec = Vec::with_capacity(19 * size + 8)
-        let fill_list = (0u8..=255).cycle().take(19 * size + 8);
+        let fill_list = (0u8..=255).cycle().take(rows * cols + 8);
         let mut fill_vec : Vec<u8> = fill_list.collect();
 
         // copy elements from 0..8 to end..end + 8
         for index in 0..8 {
-            fill_vec[19 * size + index] = fill_vec[index]
+            fill_vec[rows * cols + index] = fill_vec[index]
         }
 
         // call the function
         let mut index = 0;
         let mut mod_index = 0;
-        let slice = &fill_vec[0..19*size+8];
+        let slice = &fill_vec[0..rows * cols + 8];
         let mut ra_size = 0;
         let mut ra = NativeSimd::zero_vector();
         for _times in 0..size {
