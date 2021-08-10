@@ -371,8 +371,8 @@ where Self : Sized, S::E : PartialEq + Copy + Zero + One,
         // adjoin an identity matrix on the right
         let mut mat = self.adjoin_right(&Self::identity(self.rows(), true));
 
-        eprintln!("adjoined matrix before inverse: {:x?}",
-                  mat.as_slice());
+        // eprintln!("adjoined matrix before inverse: {:x?}",
+        //          mat.as_slice());
 
         // store these in variables to satisfy the borrow checker
         let rows = mat.rows();
@@ -382,8 +382,8 @@ where Self : Sized, S::E : PartialEq + Copy + Zero + One,
         let mut rowsize = cols; // distance from diagonal to end
         for diag in 0..mat.rows() {
 
-            eprintln!("\ndiagonal is {}", diag);
-            eprintln!("index is {}", index);
+            // eprintln!("\ndiagonal is {}", diag);
+            // eprintln!("index is {}", index);
 
             // If the matrix is invertible, there must be a non-zero
             // value somewhere in this column. If a zero occurs on the
@@ -428,18 +428,18 @@ where Self : Sized, S::E : PartialEq + Copy + Zero + One,
             // to build poly-specific lookup tables.
             let inverse = field.inv(mat.indexed_read(index));
 
-            eprintln!("inverse of element {:x?} is {:x?}",
-                      mat.indexed_read(index), inverse);
+            // eprintln!("inverse of element {:x?} is {:x?}",
+            //           mat.indexed_read(index), inverse);
 
             mat.indexed_write(index, S::E::one()); // element/element
             field.vec_constant_scale_in_place(
                 &mut mat.as_mut_slice()[index + 1 .. index + rowsize],
                 inverse);
-            eprintln!("matrix after normalising row {}: {:x?}",
-                      diag,
-                      // &mat.as_slice()[diag * cols .. diag * cols + cols]
-                      &mat.as_slice()[ .. ]
-            );
+            // eprintln!("matrix after normalising row {}: {:x?}",
+            //           diag,
+            //           // &mat.as_slice()[diag * cols .. diag * cols + cols]
+            //           &mat.as_slice()[ .. ]
+            // );
             
             // Scan up and down from the diagonal adding a multiple of
             // the current row so that the target row has zero in this
@@ -452,13 +452,13 @@ where Self : Sized, S::E : PartialEq + Copy + Zero + One,
             //        index, rowsize, diag);
 
             let mut source_row = vec![S::E::zero(); rowsize];
-            eprintln!("source_row has length {}", source_row.len());
+            // eprintln!("source_row has length {}", source_row.len());
             let source_slice = &mat.as_slice()[index  .. index + rowsize];
-            eprintln!("source_slice has length {}", source_slice.len());
+            // eprintln!("source_slice has length {}", source_slice.len());
 
             &source_row[..].copy_from_slice(source_slice);
 
-            eprintln!("source_row is {:x?}", source_row);
+            // eprintln!("source_row is {:x?}", source_row);
             
             let mut mut_rows = mat.as_mut_slice().chunks_mut(cols);
 
@@ -469,7 +469,7 @@ where Self : Sized, S::E : PartialEq + Copy + Zero + One,
 
                 // nothing to do if element already zero
                 let elem : G::E = this_row[diag];
-                eprintln!("Row {} has element {:x?}", other_row, elem);
+                // eprintln!("Row {} has element {:x?}", other_row, elem);
                 if elem == S::E::zero().into() { continue };
 
                 // guff has a non-working "fused multiply-add"
@@ -477,24 +477,24 @@ where Self : Sized, S::E : PartialEq + Copy + Zero + One,
                 this_row[diag] = S::E::zero();     // save a multiply/add
 
                 let this_row = &mut this_row[diag..]; // skip 0s
-                eprintln!("this_row is {:x?}", this_row);
+                // eprintln!("this_row is {:x?}", this_row);
                 for col in 0 .. rowsize {
-                    eprintln!("Calculating {:x?} + {:x?} x {:x?}",
-                              this_row[col],
-                              elem,
-                              source_row[col], );
+                    // eprintln!("Calculating {:x?} + {:x?} x {:x?}",
+                    //           this_row[col],
+                    //           elem,
+                    //           source_row[col], );
                     this_row[col]
                         = field.add(this_row[col],
                                     field.mul(source_row[col], elem));
-                    eprintln!("= {:x?}", this_row[col]);
+                    // eprintln!("= {:x?}", this_row[col]);
                 }
             }
 
-            eprintln!("matrix after adding row {}: {:x?}",
-                      diag,
-                      // &mat.as_slice()[diag * cols .. diag * cols + cols]
-                      &mat.as_slice()[ .. ]
-            );
+            // eprintln!("matrix after adding row {}: {:x?}",
+            //           diag,
+            //           // &mat.as_slice()[diag * cols .. diag * cols + cols]
+            //           &mat.as_slice()[ .. ]
+            // );
 
             // as we move down the diagonal, each row has fewer
             // columns to process
@@ -502,8 +502,8 @@ where Self : Sized, S::E : PartialEq + Copy + Zero + One,
             index += cols + 1;
         }
 
-        eprintln!("adjoined matrix after inverse: {:x?}",
-                  mat.as_slice());
+        // eprintln!("adjoined matrix after inverse: {:x?}",
+        //           mat.as_slice());
 
         // read off the adjoined data, which now has the inverse
         // matrix

@@ -395,6 +395,11 @@ impl Simd for X86u8x16Long0x11b {
         Self::make_combine_mask(0)
     }
 
+    unsafe fn read_simd(ptr: *const Self::E) -> Self {
+        let ptr = ptr as *const std::arch::x86_64::__m128i;
+        X86u8x16Long0x11b { vec :_mm_lddqu_si128(ptr) }
+    }
+    
     #[inline(always)]
     fn zero_vector() -> Self {
         unsafe {
